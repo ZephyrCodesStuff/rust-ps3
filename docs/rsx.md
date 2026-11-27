@@ -24,6 +24,11 @@ function descriptors.
   pixels and 16-, 32-, 64-, and 128-bit swizzled pixels.
   Labels, FIFO references, GCM events, and reports expose synchronization
   and feedback from the hardware.
+- `ReportSlot` selects the local or main-memory report table. Use
+  `map_main_reports` before submitting reports to main memory, and
+  `map_notifications` before issuing notification commands. The API
+  supports conditional draws, report DMA readback, and Z-cull statistics
+  and stencil-cull settings.
 - `shader` reads PSL1GHT output and big-endian Cell SDK Cg revision 6.
   `shader::cgb` reads CGB vertex and fragment configurations and vertex
   default constants. The PSL1GHT and Cg readers can update embedded
@@ -86,3 +91,7 @@ exercised in RPCS3, along with pitched subrectangle copies, a swizzled
 copy crossing a 1024-pixel boundary, 128-bit pixels, and narrow mip
 levels. Physical console tests and one-for-one typed
 wrappers for the remaining GCM command helpers are still open.
+Local and main-memory timestamps, local-report DMA readback, and
+main-memory notifications were checked in RPCS3. The framebuffer test
+checks both conditional drawing branches with preloaded report values.
+Positive occlusion counter results still need runtime verification.

@@ -13,7 +13,9 @@ use ps3::rsx::{
     TransferMemory, TransferScale, TransferSurface, VertexAttribute, VertexType, Viewport,
 };
 #[cfg(feature = "verify-framebuffer")]
-use ps3::rsx::{Event, EventCallback, ImageCopyTarget, ImagePixelSize, ImmediateVertex};
+use ps3::rsx::{
+    Event, EventCallback, ImageCopyTarget, ImagePixelSize, ImmediateVertex, Location, ReportSlot,
+};
 use ps3::sys::sys_timer_usleep;
 
 const MIB: usize = 1024 * 1024;
@@ -32,6 +34,8 @@ const VERTICES: [[f32; 8]; 6] = [
 
 static mut IO: IoBuffer<IO_SIZE> = IoBuffer([0; IO_SIZE]);
 static mut TEXTURE_UPLOAD: IoBuffer<IO_SIZE> = IoBuffer([0; IO_SIZE]);
+#[cfg(feature = "verify-framebuffer")]
+static mut REPORTS: IoBuffer<IO_SIZE> = IoBuffer([0; IO_SIZE]);
 #[cfg(feature = "verify-framebuffer")]
 static USER_EVENT: AtomicU32 = AtomicU32::new(0);
 
@@ -125,6 +129,9 @@ fn run() -> Result<(), Error> {
         }
         assert_eq!(upload.read_word(tail)?, guard);
     }
+    #[cfg(feature = "verify-framebuffer")]
+    let mut reports =
+        unsafe { context.map_main_reports(addr_of_mut!(REPORTS).cast(), IO_SIZE as u32)? };
     let mut draw_done = unsafe { context.label(128)? };
 
     context.set_flip_mode(FlipMode::VSync);
@@ -269,6 +276,15 @@ fn run() -> Result<(), Error> {
         )?;
         let texture = Texture::linear_argb8(scaled.location(), scaled.offset(), 8, 8, TEX_PITCH)?;
         context.bind_texture(0, &texture, &Sampler::default())?;
+        #[cfg(feature = "verify-framebuffer")]
+        {
+            // Seed two completed report values to exercise both predicate branches.
+            reports.write(20 * 16 + 8, &0u32.to_be_bytes())?;
+            reports.write(21 * 16 + 8, &1u32.to_be_bytes())?;
+            context.render_if_visible(ReportSlot::new(Location::Main, 20)?)?;
+            context.draw_arrays(Primitive::Triangles, 0, 3)?;
+            context.render_if_visible(ReportSlot::new(Location::Main, 21)?)?;
+        }
         context.draw_indexed(
             Primitive::Triangles,
             indices.location(),
@@ -276,12 +292,21 @@ fn run() -> Result<(), Error> {
             indices.offset(),
             3,
         )?;
+        #[cfg(feature = "verify-framebuffer")]
+        {
+            context.set_conditional_render(None)?;
+            context.set_report_location(Location::Local)?;
+        }
         draw_done.write(0);
         context.signal_label(&draw_done, LabelStage::Backend, 0x0123_4567)?;
         context.wait_label(&draw_done, 0x0123_4567)?;
         display.present(&mut context)?;
         context.finish(0x1234_5678, 30_000)?;
     }
+    #[cfg(feature = "verify-framebuffer")]
+    unsafe {
+        reports.unmap_main()?
+    };
     draw_done.wait(0x0123_4567, 30_000)?;
     display.wait(&context, 30_000)?;
     #[cfg(feature = "verify-framebuffer")]

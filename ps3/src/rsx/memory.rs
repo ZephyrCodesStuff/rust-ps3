@@ -172,15 +172,7 @@ impl Context {
     /// mapping. Keep the underlying allocation at a stable address until
     /// the GPU is done and the mapping has been successfully removed.
     pub unsafe fn map_main(&mut self, memory: *mut u8, size: u32) -> Result<Buffer, Error> {
-        let address = u32::try_from(memory as usize).map_err(|_| Error::InvalidArgument)?;
-        if address == 0
-            || size == 0
-            || address as usize % IO_ALIGN != 0
-            || size as usize % IO_ALIGN != 0
-            || address.checked_add(size - 1).is_none()
-        {
-            return Err(Error::InvalidArgument);
-        }
+        let address = mapping_address(memory, size)?;
         let mut offset = 0;
         unsafe { Error::status(raw::map_main_memory(memory.cast(), size, &mut offset))? };
         Ok(Buffer {
@@ -191,4 +183,62 @@ impl Context {
             exclusive: PhantomData,
         })
     }
+
+    /// Maps an application allocation at the RSX main report table's fixed
+    /// I/O address. Each report consumes 16 bytes of the mapped range.
+    ///
+    /// # Safety
+    /// Follow the same allocation and lifetime requirements as
+    /// [`Self::map_main`]. Reserve space for any debugger or performance
+    /// tools that use the report table, and keep the mapping live until the
+    /// last report and conditional draw has completed.
+    pub unsafe fn map_main_reports(&mut self, memory: *mut u8, size: u32) -> Result<Buffer, Error> {
+        const REPORT_IO_BASE: u32 = 0x0e00_0000;
+        const REPORT_IO_SIZE: u32 = 0x0100_0000;
+        if size > REPORT_IO_SIZE {
+            return Err(Error::InvalidArgument);
+        }
+        unsafe { self.map_main_at(memory, size, REPORT_IO_BASE) }
+    }
+
+    /// Maps an aligned I/O page for the eight GCM notification slots.
+    ///
+    /// # Safety
+    /// Follow the same allocation and lifetime requirements as
+    /// [`Self::map_main`] for the full 1 MiB page. Keep it mapped until
+    /// all queued notifications have completed.
+    pub unsafe fn map_notifications(&mut self, memory: *mut u8) -> Result<Buffer, Error> {
+        const NOTIFY_IO_BASE: u32 = 0x0f10_0000;
+        unsafe { self.map_main_at(memory, IO_ALIGN as u32, NOTIFY_IO_BASE) }
+    }
+
+    unsafe fn map_main_at(
+        &mut self,
+        memory: *mut u8,
+        size: u32,
+        offset: u32,
+    ) -> Result<Buffer, Error> {
+        let address = mapping_address(memory, size)?;
+        unsafe { Error::status(raw::map_ea_io_address(memory.cast(), offset, size))? };
+        Ok(Buffer {
+            location: Location::Main,
+            address,
+            offset,
+            size,
+            exclusive: PhantomData,
+        })
+    }
+}
+
+fn mapping_address(memory: *mut u8, size: u32) -> Result<u32, Error> {
+    let address = u32::try_from(memory as usize).map_err(|_| Error::InvalidArgument)?;
+    if address == 0
+        || size == 0
+        || address as usize % IO_ALIGN != 0
+        || size as usize % IO_ALIGN != 0
+        || address.checked_add(size - 1).is_none()
+    {
+        return Err(Error::InvalidArgument);
+    }
+    Ok(address)
 }

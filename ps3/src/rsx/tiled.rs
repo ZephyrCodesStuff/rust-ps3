@@ -166,6 +166,34 @@ impl Context {
         unsafe { self.write_method(nv4097::SET_ZCULL_EN, true, &[mode]) }
     }
 
+    pub fn set_zcull_stats_enabled(&mut self, enabled: bool) -> Result<(), Error> {
+        unsafe { self.write_method(nv4097::SET_ZCULL_STATS_ENABLE, true, &[enabled.into()]) }
+    }
+
+    pub fn set_zcull_control(
+        &mut self,
+        direction: ZCullDirection,
+        format: ZCullFormat,
+    ) -> Result<(), Error> {
+        let control = direction as u32 | (format as u32) << 4;
+        unsafe { self.write_method(nv4097::SET_ZCULL_CONTROL0, true, &[control]) }
+    }
+
+    pub fn set_zcull_limits(&mut self, move_forward: u16, push_back: u16) -> Result<(), Error> {
+        let limits = u32::from(move_forward) << 16 | u32::from(push_back);
+        unsafe { self.write_method(nv4097::SET_ZCULL_CONTROL1, true, &[limits]) }
+    }
+
+    pub fn set_stencil_cull(
+        &mut self,
+        compare: Compare,
+        reference: u8,
+        mask: u8,
+    ) -> Result<(), Error> {
+        let control = (compare as u32 - 0x200) | u32::from(reference) << 16 | u32::from(mask) << 24;
+        unsafe { self.write_method(nv4097::SET_SCULL_CONTROL, true, &[control]) }
+    }
+
     /// Invalidates Z-cull data for the current depth buffer.
     pub fn clear_zcull(&mut self, depth: bool, stencil: bool) -> Result<(), Error> {
         let mode = u32::from(depth) | (u32::from(stencil) << 1);
