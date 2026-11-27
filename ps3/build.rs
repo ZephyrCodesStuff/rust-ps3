@@ -52,6 +52,8 @@ fn default_module_id() -> u16 {
 struct FunctionConfig {
     name: String,
     fnid: u32,
+    #[serde(default)]
+    sdk_370_only: bool,
 }
 
 fn generate_sprx_assembly(config: &SprxConfig) -> String {
@@ -151,9 +153,9 @@ fn generate_sprx_assembly(config: &SprxConfig) -> String {
         out.push_str(&format!("    .short 0x{:04x}\n", lib.module_id));
         out.push_str(&format!("    .short {}\n", lib.functions.len()));
         out.push_str("    .int 0, 0\n");
-        out.push_str("    .int 0            # name (patched by moldier)\n");
-        out.push_str("    .int 0            # fnid (patched by moldier)\n");
-        out.push_str("    .int 0            # fstub (patched by moldier)\n");
+        out.push_str(&format!(
+            "    .long {lib_name}_name, {lib_name}_fnid_table, {lib_name}_fstub_table\n"
+        ));
         out.push_str("    .int 0, 0, 0, 0\n\n");
     }
 
@@ -162,9 +164,7 @@ fn generate_sprx_assembly(config: &SprxConfig) -> String {
     out.push_str(
         ".macro DEFINE_STUB name\n\
 .align 2\n\
-.globl \\name\n\
-.type \\name, @function\n\
-\\name:\n\
+.Lcode_\\name:\n\
     mflr    0\n\
     std     0, 16(1)\n\
     std     2, 40(1)\n\
@@ -181,6 +181,14 @@ fn generate_sprx_assembly(config: &SprxConfig) -> String {
     ld      0, 16(1)\n\
     mtlr    0\n\
     blr\n\
+    .pushsection \".opd\",\"aw\"\n\
+    .p2align 3\n\
+    .globl \\name\n\
+    .type \\name, @function\n\
+\\name:\n\
+    .quad .Lcode_\\name, .TOC.@tocbase, 0\n\
+    .size \\name, .-\\name\n\
+    .popsection\n\
 .endm\n\n",
     );
 
@@ -198,6 +206,7 @@ fn generate_sprx_assembly(config: &SprxConfig) -> String {
 fn main() {
     println!("cargo:rerun-if-changed=sprx.toml");
     println!("cargo:rerun-if-changed=../sprx.toml");
+    println!("cargo:rerun-if-changed=sdk-imports.toml");
 
     let out_dir = env::var("OUT_DIR").unwrap();
     let dest_path = PathBuf::from(out_dir).join("sprx.s");
@@ -210,12 +219,49 @@ fn main() {
         None
     };
 
-    let config: SprxConfig = if let Some(path) = config_path {
+    let mut config: SprxConfig = if let Some(path) = config_path {
         let content = fs::read_to_string(&path).unwrap_or_default();
         toml::from_str(&content).unwrap_or_default()
     } else {
         SprxConfig::default()
     };
+
+    if env::var_os("CARGO_FEATURE_SDK_IMPORTS").is_some() {
+        let sdk: SprxConfig =
+            toml::from_str(include_str!("sdk-imports.toml")).expect("invalid built-in SDK imports");
+        let sdk_370 = env::var_os("CARGO_FEATURE_SDK_370").is_some();
+
+        for (name, mut library) in sdk.libraries {
+            library.functions.retain(|f| sdk_370 || !f.sdk_370_only);
+            let configured =
+                config
+                    .libraries
+                    .entry(name.clone())
+                    .or_insert_with(|| LibraryConfig {
+                        module_id: library.module_id,
+                        functions: Vec::new(),
+                    });
+            assert_eq!(
+                configured.module_id, library.module_id,
+                "conflicting SDK library attributes for {name}"
+            );
+            for function in library.functions {
+                if let Some(existing) = configured
+                    .functions
+                    .iter()
+                    .find(|f| f.name == function.name)
+                {
+                    assert_eq!(
+                        existing.fnid, function.fnid,
+                        "conflicting SDK import {}",
+                        function.name
+                    );
+                } else {
+                    configured.functions.push(function);
+                }
+            }
+        }
+    }
 
     let asm = generate_sprx_assembly(&config);
     fs::write(dest_path, asm).expect("Failed to write generated sprx.s");

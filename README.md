@@ -166,9 +166,15 @@ container selector pairs under different permissions.
 
 Public SDK helpers for memory mapping and timer scheduling are available
 under `ps3::sys`, alongside the compatibility helpers for process exit,
-thread creation and PRX start and stop. Use SDK library imports for Cell APIs such as file
-I/O and sockets. The previous raw filesystem traps and generic selector
-interface have been removed.
+thread creation and PRX start and stop. Cell APIs such as file I/O and
+sockets use their SDK library imports.
+
+Enable the `sdk-imports` feature to access `ps3::sys::sdk`. It contains typed
+firmware calls for PRX management, PPU threads, lightweight synchronization,
+SPU images, memory pools and related system services. These functions use the
+running firmware's `sysPrxForUser` library. The build adds the SDK import IDs
+to the application's SPRX import table, which `moldier patch` finalizes.
+The selected ABI controls which symbols are imported.
 
 To compare the public direct bindings with local SDK headers, run:
 
@@ -177,7 +183,10 @@ python3 scripts/audit-lv2.py --public-sdk-headers INCLUDE_DIR --sdk-abi sdk-370
 ```
 
 Add `--psl1ght-headers "$PS3DEV/ppu/include"` to compare inline selector
-coverage and argument counts with a local PSL1GHT installation.
+coverage and argument counts with a local PSL1GHT installation. Pass
+`--lv2-stub-archive PATH_TO_LIBLV2_STUB_A --ppu-bin "$PS3DEV/ppu/bin"` to
+also compare the public library declarations and import IDs. The archive
+check uses Python 3.11 or later.
 
 To build the smoke program with a PS3DEV GNU linker:
 
@@ -194,6 +203,14 @@ before the `--`. Boot `target/powerpc64-sony-ps3/release/lv2-smoke.ELF` in
 RPCS3. The program prints `LV2 ABI smoke passed` after checking process and
 time calls, memory allocation, mapped memory and containers, event queues,
 timers, semaphores, read/write locks, and thread creation and join.
+
+For the firmware import tests, build the smoke program with `--features
+sdk-imports` before the `--` and add `-C link-arg=-u -C
+link-arg=sys_proc_prx_param` after it. Use
+`--no-default-features --features sdk-192,sdk-imports` for the 1.92 variant.
+Run `moldier patch` on the resulting ELF before booting it. This variant
+also checks the firmware thread wrappers, lightweight mutex and condition
+variable, memory pool and PRX lifecycle using the firmware's `libfiber.sprx`.
 
 ## SPRX Dynamic Imports (`sprx.toml`)
 

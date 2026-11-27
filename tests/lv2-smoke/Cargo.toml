@@ -8,6 +8,7 @@ publish = false
 default = ["sdk-370"]
 sdk-370 = ["ps3/sdk-370"]
 sdk-192 = ["ps3/sdk-192"]
+sdk-imports = ["ps3/sdk-imports"]
 
 [dependencies]
 ps3 = { path = "../../ps3", default-features = false }

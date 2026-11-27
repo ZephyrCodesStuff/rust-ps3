@@ -2,6 +2,8 @@
 
 pub mod entry;
 pub mod error;
+#[cfg(feature = "sdk-imports")]
+pub mod sdk;
 pub mod syscalls;
 pub mod types;
 

@@ -12,6 +12,7 @@ crate-type = ["rlib"]
 default = ["sdk-370"]
 sdk-370 = []
 sdk-192 = []
+sdk-imports = []
 
 [dependencies]
 ps3-macros = { path = "../ps3-macros" }

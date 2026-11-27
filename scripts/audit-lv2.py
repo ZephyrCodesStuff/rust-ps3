@@ -5,8 +5,10 @@ import argparse
 from dataclasses import dataclass
 from pathlib import Path
 import re
+import subprocess
 
-SYSCALLS = Path(__file__).resolve().parents[1] / "ps3/src/sys/syscalls"
+PS3 = Path(__file__).resolve().parents[1] / "ps3"
+SYSCALLS = PS3 / "src/sys/syscalls"
 SDK_DEFINE = re.compile(r"^\s*#\s*define\s+(_?SYS_[A-Z0-9_]+)\s+(\d+)\b", re.M)
 SDK_INLINE = re.compile(
     r"\b(?:inline|__inline__)\s+([\w ]+?)\s+(\w+)\s*\(([^;{}()]*)\)\s*"
@@ -113,17 +115,88 @@ def rust_bindings(abi):
     return bindings
 
 
+def liblv2_stub_ids(archive, ppu_bin):
+    """Read Sony archive member names, function symbols and NID records."""
+    def tool(name, *args):
+        executable = str(ppu_bin / name) if ppu_bin else name
+        return subprocess.check_output([executable, *args, str(archive)], text=True)
+
+    symbols = dict(re.findall(
+        r"^([^\n:]+\.o):\n[0-9a-f]+ T \.(\w+)$", tool("ppu-nm", "--defined-only"), re.M
+    ))
+    records = dict(re.findall(
+        r"^([^\n:]+\.o):\s*file format[^\n]*\s+Contents of section[^\n]*"
+        r"\n 0000 [0-9a-f]{8} [0-9a-f]{8} ([0-9a-f]{8})\b",
+        tool("ppu-objdump", "-s", "-j", ".psp_libgen_markfunc"),
+        re.M,
+    ))
+    if not symbols or not records:
+        raise ValueError(f"no SDK function NID records found in {archive}")
+    if symbols.keys() - records.keys():
+        missing = ", ".join(sorted(symbols.keys() - records.keys()))
+        raise ValueError(f"missing SDK function NID records in {archive}: {missing}")
+    return {symbol: int(records[member], 16) for member, symbol in symbols.items()}
+
+
+def audit_liblv2(include, archive, ppu_bin, abi):
+    """Check the public header/stub intersection against the Rust imports."""
+    import tomllib
+
+    stub_ids = liblv2_stub_ids(archive, ppu_bin)
+    declarations = re.compile(
+        r"(?<!\w)(" + "|".join(map(re.escape, stub_ids)) + r")\s*"
+        r"\((?:[^();{}]|\([^()]*\))*\)\s*(?:__attribute__[^;]*)?;"
+    )
+    expected = {}
+    for path in include.rglob("*.h"):
+        # Some SDK headers include declarations for the internal build. The
+        # public ABI is the part available with __LV2_EXTERNAL_RELEASE__.
+        source = re.sub(
+            r"#ifndef __LV2_EXTERNAL_RELEASE__\b.*?#endif\s*/\* __LV2_EXTERNAL_RELEASE__ \*/",
+            "", path.read_text(encoding="utf-8", errors="replace"), flags=re.S,
+        )
+        for name in declarations.findall(re.sub(r"/\*.*?\*/|//[^\n]*", "", source, flags=re.S)):
+            expected[name] = stub_ids[name]
+
+    config = tomllib.loads((PS3 / "sdk-imports.toml").read_text())
+    imports = {
+        item["name"]: item["fnid"]
+        for item in config["libraries"]["sysPrxForUser"]["functions"]
+        if abi == "sdk-370" or not item.get("sdk_370_only", False)
+    }
+    rust = {
+        symbol
+        for path in (PS3 / "src/sys/sdk").glob("*.rs")
+        for symbol in re.findall(r"^    pub fn (\w+)\(", rust_source(path, abi), re.M)
+    }
+    failures = []
+    failures.extend(f"missing SDK library import: {name}" for name in sorted(expected.keys() - imports.keys()))
+    failures.extend(f"extra SDK library import: {name}" for name in sorted(imports.keys() - expected.keys()))
+    failures.extend(f"missing Rust SDK declaration: {name}" for name in sorted(imports.keys() - rust))
+    # Declarations in other modules may be added for other firmware libraries.
+    failures.extend(f"SDK declaration without import: {name}" for name in sorted((rust & stub_ids.keys()) - imports.keys()))
+    for name in sorted(expected.keys() & imports.keys()):
+        if expected[name] != imports[name]:
+            failures.append(f"{name}: SDK FNID 0x{expected[name]:08x}, Rust FNID 0x{imports[name]:08x}")
+    if failures:
+        raise ValueError("\n".join(failures))
+    print(f"{abi}: {len(expected)} public liblv2 imports match the SDK headers and stub FNIDs")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--public-sdk-headers", type=Path, required=True, metavar="INCLUDE_DIR")
     parser.add_argument("--sdk-abi", choices=("sdk-370", "sdk-192"), default="sdk-370")
     parser.add_argument("--psl1ght-headers", type=Path, metavar="INCLUDE_DIR")
+    parser.add_argument("--lv2-stub-archive", type=Path, metavar="LIBLV2_STUB_A")
+    parser.add_argument("--ppu-bin", type=Path, metavar="TOOL_DIRECTORY",
+                        help="directory containing ppu-nm and ppu-objdump (defaults to PATH)")
     args = parser.parse_args()
     try:
         sdk = sdk_bindings(args.public_sdk_headers)
         rust = rust_bindings(args.sdk_abi)
         psl1ght = psl1ght_selectors(args.psl1ght_headers) if args.psl1ght_headers else None
-    except (OSError, KeyError, ValueError) as error:
+    except (OSError, KeyError, ValueError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"{error}\n")
 
     errors = []
@@ -146,6 +219,12 @@ def main():
             if psl1ght[number] != {binding.arity}:
                 print(f"  {number} ({name}): official arity {binding.arity}, "
                       f"PSL1GHT arities {sorted(psl1ght[number])}")
+
+    if args.lv2_stub_archive:
+        try:
+            audit_liblv2(args.public_sdk_headers, args.lv2_stub_archive, args.ppu_bin, args.sdk_abi)
+        except (OSError, KeyError, ValueError, subprocess.CalledProcessError) as error:
+            parser.exit(1, f"{error}\n")
 
 
 if __name__ == "__main__":

@@ -26,8 +26,26 @@ lv2_smoke_thread:
     thread = sym thread,
 );
 
+#[cfg(feature = "sdk-imports")]
+global_asm!(
+    r#"
+    .pushsection .entrydesc,"a"
+    .p2align 2
+    .globl lv2_sdk_thread
+lv2_sdk_thread:
+    .long .Lsdk_thread, __toc
+    .popsection
+    .text
+.Lsdk_thread:
+    b {sdk_thread}
+"#,
+    sdk_thread = sym sdk_thread,
+);
+
 extern "C" {
     static lv2_smoke_thread: PpuFunctionDescriptor;
+    #[cfg(feature = "sdk-imports")]
+    static lv2_sdk_thread: PpuFunctionDescriptor;
 }
 
 fn check(condition: bool, test: &str) {
@@ -67,6 +85,8 @@ extern "C" fn start() -> ! {
         timers();
         synchronization();
         threads();
+        #[cfg(feature = "sdk-imports")]
+        sdk_imports();
     }
 
     sys::sys_tty_write("LV2 ABI smoke passed\n");
@@ -317,6 +337,14 @@ unsafe fn synchronization() {
     check(sys_rwlock_destroy(id) == 0, "rwlock destroy");
 }
 
+#[cfg(feature = "sdk-imports")]
+extern "C" fn sdk_thread(value: u64) -> ! {
+    unsafe { sys::sdk::thread::sys_ppu_thread_exit(value + 1) };
+    loop {
+        core::hint::spin_loop();
+    }
+}
+
 extern "C" fn thread(value: u64) -> ! {
     unsafe { sys::sys_ppu_thread_exit(value + 1) };
     loop {
@@ -352,4 +380,152 @@ unsafe fn threads() {
         sys_ppu_thread_join(thread_id, &mut result) == 0 && result == argument + 1,
         "thread join",
     );
+}
+
+#[cfg(feature = "sdk-imports")]
+unsafe fn sdk_imports() {
+    use core::mem::MaybeUninit;
+    use ps3::sys::sdk::{memory::*, process, sync::*, thread};
+
+    let mut thread_id = 0;
+    check(
+        thread::sys_ppu_thread_get_id(&mut thread_id) == 0 && thread_id != 0,
+        "SDK current thread",
+    );
+    check(
+        process::sys_process_is_stack((&raw const thread_id).cast()) != 0,
+        "SDK stack address",
+    );
+
+    let mut worker_id = 0;
+    check(
+        thread::sys_ppu_thread_create(
+            &mut worker_id,
+            &raw const lv2_sdk_thread,
+            42,
+            1000,
+            0x10000,
+            SYS_PPU_THREAD_CREATE_JOINABLE,
+            b"rust-sdk\0".as_ptr(),
+        ) == 0,
+        "SDK thread create",
+    );
+    let mut worker_status = 0;
+    check(
+        sys_ppu_thread_join(worker_id, &mut worker_status) == 0 && worker_status == 43,
+        "SDK thread exit and join",
+    );
+
+    let mut lock = 0;
+    sys_spinlock_initialize(&mut lock);
+    check(sys_spinlock_trylock(&mut lock) == 0, "SDK spinlock");
+    sys_spinlock_unlock(&mut lock);
+
+    let mut mutex = MaybeUninit::<SysLwmutex>::uninit();
+    let mut mutex_attr = SysLwmutexAttribute::default();
+    let mut cond = MaybeUninit::<SysLwcond>::uninit();
+    let mut cond_attr = SysLwcondAttribute::default();
+    check(
+        sys_lwmutex_create(mutex.as_mut_ptr(), &mut mutex_attr) == 0,
+        "SDK lightweight mutex create",
+    );
+    check(
+        sys_lwcond_create(cond.as_mut_ptr(), mutex.as_mut_ptr(), &mut cond_attr) == 0,
+        "SDK lightweight condition create",
+    );
+    check(
+        sys_lwmutex_lock(mutex.as_mut_ptr(), 0) == 0,
+        "SDK lightweight mutex lock",
+    );
+    check(
+        sys_lwcond_wait(cond.as_mut_ptr(), 1000) == ps3::sys::error::CELL_ETIMEDOUT,
+        "SDK lightweight condition timeout",
+    );
+    check(
+        sys_lwmutex_unlock(mutex.as_mut_ptr()) == 0,
+        "SDK lightweight mutex unlock",
+    );
+    check(
+        sys_lwcond_destroy(cond.as_mut_ptr()) == 0,
+        "SDK lightweight condition destroy",
+    );
+    check(
+        sys_lwmutex_destroy(mutex.as_mut_ptr()) == 0,
+        "SDK lightweight mutex destroy",
+    );
+
+    #[repr(align(128))]
+    struct PoolBacking([u8; 4096]);
+    let mut backing = PoolBacking([0; 4096]);
+    let mut pool = SysMempool::default();
+    check(
+        sys_mempool_create(&mut pool, backing.0.as_mut_ptr().cast(), 4096, 256, 128) == 0,
+        "SDK memory pool create",
+    );
+    let count = sys_mempool_get_count(pool);
+    let block = sys_mempool_allocate_block(pool);
+    check(
+        count > 0 && !block.is_null() && sys_mempool_get_count(pool) == count - 1,
+        "SDK memory pool allocate",
+    );
+    check(
+        sys_mempool_free_block(pool, block) == 0 && sys_mempool_get_count(pool) == count,
+        "SDK memory pool free",
+    );
+    sys_mempool_destroy(pool);
+
+    prx();
+}
+
+#[cfg(feature = "sdk-imports")]
+unsafe fn prx() {
+    use core::ptr::{null, null_mut};
+    use ps3::sys::sdk::prx::*;
+
+    let path = b"/dev_flash/sys/external/libfiber.sprx\0";
+    let id = sys_prx_load_module(path.as_ptr(), 0, null_mut());
+    check(id > 0, "SDK PRX load");
+    let mut ids = [0i32; 16];
+    let mut list = SysPrxModuleList {
+        capacity: ids.len() as u32,
+        ids_addr: ids.as_mut_ptr() as usize as u32,
+        ..Default::default()
+    };
+    check(
+        sys_prx_get_module_list(0, &mut list) == 0 && ids.contains(&id),
+        "SDK PRX list",
+    );
+
+    let mut filename = [0u8; SYS_PRX_MODULE_FILENAME_SIZE];
+    let mut segments = [SysPrxSegmentInfo::default(); 8];
+    let mut info = SysPrxModuleInfo {
+        filename_addr: filename.as_mut_ptr() as usize as u32,
+        filename_size: filename.len() as u32,
+        segments_addr: segments.as_mut_ptr() as usize as u32,
+        segments_count: segments.len() as u32,
+        ..Default::default()
+    };
+    check(
+        sys_prx_get_module_info(id, 0, &mut info) == 0
+            && filename.windows(13).any(|bytes| bytes == b"libfiber.sprx")
+            && info.total_segments > 0,
+        "SDK PRX info",
+    );
+    check(
+        sys_prx_get_module_id_by_address(segments[0].base as usize as *mut _) == id,
+        "SDK PRX lookup by address",
+    );
+
+    let mut result = i32::MIN;
+    check(
+        sys_prx_start_module(id, 0, null_mut(), &mut result, 0, null_mut()) == 0
+            && result == SYS_PRX_RESIDENT,
+        "SDK PRX start",
+    );
+    check(
+        sys_prx_stop_module(id, 0, null_mut(), &mut result, 0, null_mut()) == 0
+            && result == SYS_PRX_STOP_SUCCESS,
+        "SDK PRX stop",
+    );
+    check(sys_prx_unload_module(id, 0, null()) == 0, "SDK PRX unload");
 }

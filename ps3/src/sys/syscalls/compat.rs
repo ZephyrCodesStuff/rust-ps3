@@ -186,3 +186,18 @@ pub unsafe fn sys_timer_start_periodic(timer_id: u32, period: u64) -> i32 {
 pub unsafe fn sys_timer_start_periodic_absolute(timer_id: u32, base_time: i64, period: u64) -> i32 {
     unsafe { raw::_sys_timer_start(timer_id, base_time, period) }
 }
+
+/// Attaches an interrupt thread to a tag and supplies one handler argument.
+///
+/// # Safety
+///
+/// The handle pointer must be writable. The tag and thread must be owned by
+/// the process and remain valid for the duration of the call.
+pub unsafe fn sys_interrupt_thread_establish(
+    handle: *mut u32,
+    tag: u32,
+    thread: u64,
+    arg: u64,
+) -> i32 {
+    unsafe { raw::_sys_interrupt_thread_establish(handle, tag, thread, arg, 0) }
+}
