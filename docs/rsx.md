@@ -14,6 +14,9 @@ function descriptors.
 - Draw calls support vertex and index buffers, inline data, programmable
   shaders, render targets, depth and stencil testing, blending, and
   vertex and fragment textures.
+- Vertex formats and offsets can be updated independently. The API also
+  exposes shared vertex array bases, all eight immediate attribute
+  formats, and inline 16-bit and 32-bit index draws.
 - DMA commands support pitched copies, inline word transfers, scaling,
   and swizzled destinations.
   Labels, FIFO references, GCM events, and reports expose synchronization
@@ -65,7 +68,8 @@ older SDK's imports, add `--imports-only` with its `--sdk-abi` value.
 The `rsx-triangle` example passed in RPCS3 at 1280 × 720 under all three
 Cargo profiles. With
 `verify-framebuffer` and **Write Color Buffers** enabled, it checks
-the clear color, two independent draw paths, a queued fragment constant
+the clear color, an inline 16-bit indexed draw with an immediate color
+and a shared vertex base, an indexed buffer draw, a queued fragment constant
 update, inline transfers to main memory, GPU copies and scaling,
 swizzle output, a firmware FIFO refill, a user callback, and alternate
 display buffers. It also checks tile and Z-cull setup, including the

@@ -1,4 +1,5 @@
 use super::commands::packet;
+use super::methods::nv4097;
 use super::{Context, Error, Method};
 
 const BEGIN_END: u16 = 0x1808;
@@ -7,6 +8,7 @@ const INDEX_BUFFER: u16 = 0x181c;
 const DRAW_INDEXED: u16 = 0x1824;
 const INVALIDATE_VERTEX_CACHE: u16 = 0x1714;
 const MAX_DRAW_INDEX: u32 = 0x00ff_ffff;
+const MAX_INLINE_INDEX_COUNT: usize = 0x000f_ffff;
 
 /// The GPU memory space containing a resource.
 #[repr(u8)]
@@ -52,6 +54,23 @@ pub struct VertexAttribute {
     pub frequency: u16,
     pub location: Location,
     pub offset: u32,
+}
+
+/// A vertex input encoded in the FIFO with the selected GCM format.
+#[derive(Clone, Copy, Debug)]
+pub enum ImmediateVertex {
+    Float1(f32),
+    Float2([f32; 2]),
+    Float3([f32; 3]),
+    Float4([f32; 4]),
+    Short2([i16; 2]),
+    Short4([i16; 4]),
+    ScaledShort4([i16; 4]),
+    NormalizedByte4([u8; 4]),
+}
+
+fn pack_shorts(low: i16, high: i16) -> u32 {
+    u32::from(low as u16) | (u32::from(high as u16) << 16)
 }
 
 #[repr(u8)]
@@ -175,10 +194,12 @@ impl Context {
             return Err(Error::InvalidArgument);
         }
         let register = u16::from(attribute.slot) * 4;
-        let format = u32::from(attribute.frequency) << 16
-            | u32::from(attribute.stride) << 8
-            | u32::from(attribute.components) << 4
-            | u32::from(attribute.format as u8);
+        let format = vertex_format(
+            attribute.format,
+            attribute.components,
+            attribute.stride,
+            attribute.frequency,
+        );
         let address = (u32::from(attribute.location as u8) << 31) | attribute.offset;
         unsafe {
             self.write_words(&[&[
@@ -190,12 +211,59 @@ impl Context {
         }
     }
 
-    /// Disables a buffered vertex input so the current immediate value is used.
-    pub fn disable_vertex_attribute(&mut self, slot: u8) -> Result<(), Error> {
-        if slot >= 16 {
+    /// Updates the format of an array independently of its current address.
+    /// A zero component count selects the slot's immediate value.
+    pub fn set_vertex_attribute_format(
+        &mut self,
+        slot: u8,
+        format: VertexType,
+        components: u8,
+        stride: u8,
+        frequency: u16,
+    ) -> Result<(), Error> {
+        if slot >= 16 || components > 4 {
             return Err(Error::InvalidArgument);
         }
-        unsafe { self.write_words(&[&[packet(0x1740 + u16::from(slot) * 4, 1), 2]]) }
+        let value = vertex_format(format, components, stride, frequency);
+        unsafe { self.write_words(&[&[packet(0x1740 + u16::from(slot) * 4, 1), value]]) }
+    }
+
+    /// Changes the address of an array independently of its format.
+    ///
+    /// # Safety
+    /// The address and active format must describe a live vertex range
+    /// large enough for every dependent draw.
+    pub unsafe fn set_vertex_attribute_offset(
+        &mut self,
+        slot: u8,
+        location: Location,
+        offset: u32,
+    ) -> Result<(), Error> {
+        if slot >= 16 || offset >= (1 << 31) {
+            return Err(Error::InvalidArgument);
+        }
+        let address = (u32::from(location as u8) << 31) | offset;
+        unsafe { self.write_words(&[&[packet(0x1680 + u16::from(slot) * 4, 1), address]]) }
+    }
+
+    /// Sets the shared byte offset and index base for vertex array fetches.
+    ///
+    /// # Safety
+    /// Every enabled attribute array must cover the addresses selected by
+    /// subsequent draws with these base values.
+    pub unsafe fn set_vertex_data_base(&mut self, offset: u32, index: u32) -> Result<(), Error> {
+        unsafe {
+            self.write_words(&[&[
+                nv4097::SET_VERTEX_DATA_BASE_OFFSET.header(2, true),
+                offset,
+                index,
+            ]])
+        }
+    }
+
+    /// Disables a buffered vertex input so the current immediate value is used.
+    pub fn disable_vertex_attribute(&mut self, slot: u8) -> Result<(), Error> {
+        self.set_vertex_attribute_format(slot, VertexType::F32, 0, 0, 0)
     }
 
     /// Sets the immediate four-component value of a vertex attribute.
@@ -205,15 +273,53 @@ impl Context {
         slot: u8,
         value: [f32; 4],
     ) -> Result<(), Error> {
+        self.set_immediate_vertex(slot, ImmediateVertex::Float4(value))
+    }
+
+    /// Queues an immediate attribute value. Disable buffered input for
+    /// the slot to use the immediate value across a buffered draw.
+    pub fn set_immediate_vertex(&mut self, slot: u8, value: ImmediateVertex) -> Result<(), Error> {
+        use nv4097::*;
+
         if slot >= 16 {
             return Err(Error::InvalidArgument);
         }
-        unsafe {
-            self.write_words(&[
-                &[packet(0x1c00 + u16::from(slot) * 16, 4)],
-                &value.map(f32::to_bits),
-            ])
-        }
+        let (base, stride, words, count) = match value {
+            ImmediateVertex::Float1(x) => (SET_VERTEX_DATA1F_M, 4, [x.to_bits(), 0, 0, 0], 1),
+            ImmediateVertex::Float2([x, y]) => {
+                (SET_VERTEX_DATA2F_M, 8, [x.to_bits(), y.to_bits(), 0, 0], 2)
+            }
+            ImmediateVertex::Float3([x, y, z]) => (
+                SET_VERTEX_DATA3F_M,
+                16,
+                [x.to_bits(), y.to_bits(), z.to_bits(), 0],
+                3,
+            ),
+            ImmediateVertex::Float4(value) => (SET_VERTEX_DATA4F_M, 16, value.map(f32::to_bits), 4),
+            ImmediateVertex::Short2([x, y]) => {
+                (SET_VERTEX_DATA2S_M, 4, [pack_shorts(x, y), 0, 0, 0], 1)
+            }
+            ImmediateVertex::Short4([x, y, z, w]) => (
+                SET_VERTEX_DATA4S_M,
+                8,
+                [pack_shorts(x, y), pack_shorts(z, w), 0, 0],
+                2,
+            ),
+            ImmediateVertex::ScaledShort4([x, y, z, w]) => (
+                SET_VERTEX_DATA_SCALED4S_M,
+                8,
+                [pack_shorts(x, y), pack_shorts(z, w), 0, 0],
+                2,
+            ),
+            ImmediateVertex::NormalizedByte4(value) => (
+                SET_VERTEX_DATA4UB_M,
+                4,
+                [u32::from_le_bytes(value), 0, 0, 0],
+                1,
+            ),
+        };
+        let method = base.address() + u16::from(slot) * stride;
+        unsafe { self.write_words(&[&[packet(method, count)], &words[..count]]) }
     }
 
     /// Draws interleaved vertex data supplied directly in the command stream.
@@ -241,6 +347,39 @@ impl Context {
     ) -> Result<(), Error> {
         use super::methods::nv4097::ARRAY_ELEMENT32;
         unsafe { self.draw_inline_words(primitive, ARRAY_ELEMENT32, indices) }
+    }
+
+    /// Draws using 16-bit indices embedded in the command stream.
+    ///
+    /// # Safety
+    /// Every index must refer to live bound vertex data. A failed refill
+    /// can leave an incomplete primitive in the stream.
+    pub unsafe fn draw_inline_indices_u16(
+        &mut self,
+        primitive: Primitive,
+        mut indices: &[u16],
+    ) -> Result<(), Error> {
+        if indices.is_empty() {
+            return Ok(());
+        }
+        if indices.len() > MAX_INLINE_INDEX_COUNT {
+            return Err(Error::InvalidArgument);
+        }
+        unsafe {
+            self.begin_draw(primitive)?;
+            if indices.len() % 2 != 0 {
+                self.write_method(nv4097::ARRAY_ELEMENT32, false, &[u32::from(indices[0])])?;
+                indices = &indices[1..];
+            }
+            let mut packed = [0; 256];
+            for block in indices.chunks(512) {
+                for (word, pair) in packed.iter_mut().zip(block.chunks_exact(2)) {
+                    *word = u32::from(pair[0]) | (u32::from(pair[1]) << 16);
+                }
+                self.write_method(nv4097::ARRAY_ELEMENT16, false, &packed[..block.len() / 2])?;
+            }
+            self.write_words(&[&[packet(BEGIN_END, 1), 0]])
+        }
     }
 
     unsafe fn draw_inline_words(
@@ -372,4 +511,11 @@ impl Context {
         }
         Ok(())
     }
+}
+
+fn vertex_format(format: VertexType, components: u8, stride: u8, frequency: u16) -> u32 {
+    u32::from(frequency) << 16
+        | u32::from(stride) << 8
+        | u32::from(components) << 4
+        | u32::from(format as u8)
 }

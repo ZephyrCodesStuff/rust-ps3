@@ -24,7 +24,9 @@ pub mod video;
 pub use commands::ClearMask;
 pub use context::{Context, Error, FlipMode, Method};
 pub use display::{Framebuffer, Swapchain};
-pub use draw::{IndexType, Location, Primitive, Rect, VertexAttribute, VertexType, Viewport};
+pub use draw::{
+    ImmediateVertex, IndexType, Location, Primitive, Rect, VertexAttribute, VertexType, Viewport,
+};
 pub use event::{Event, EventCallback};
 pub use memory::{Buffer, IoBuffer, LocalArena};
 pub use pipeline::{

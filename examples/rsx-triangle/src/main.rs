@@ -13,7 +13,7 @@ use ps3::rsx::{
     TransferMemory, TransferScale, TransferSurface, VertexAttribute, VertexType, Viewport,
 };
 #[cfg(feature = "verify-framebuffer")]
-use ps3::rsx::{Event, EventCallback};
+use ps3::rsx::{Event, EventCallback, ImmediateVertex};
 use ps3::sys::sys_timer_usleep;
 
 const MIB: usize = 1024 * 1024;
@@ -225,7 +225,20 @@ fn run() -> Result<(), Error> {
                 offset,
             })?;
         }
+        #[cfg(not(feature = "verify-framebuffer"))]
         context.draw_arrays(Primitive::Triangles, 0, 3)?;
+        #[cfg(feature = "verify-framebuffer")]
+        {
+            context.disable_vertex_attribute(3)?;
+            context
+                .set_immediate_vertex(3, ImmediateVertex::NormalizedByte4([255, 128, 0, 255]))?;
+            context.set_vertex_attribute_format(0, VertexType::F32, 4, 32, 0)?;
+            context.set_vertex_attribute_offset(0, vertices.location(), vertex_offset - 32)?;
+            context.set_vertex_data_base(32, 0)?;
+            context.draw_inline_indices_u16(Primitive::Triangles, &[0, 1, 2])?;
+            context.set_vertex_data_base(0, 0)?;
+            context.set_vertex_attribute_offset(0, vertices.location(), vertex_offset)?;
+        }
         context.load_vertex_program(&textured_vertex)?;
         context.load_fragment_program(
             &textured_fragment,
@@ -268,7 +281,7 @@ fn run() -> Result<(), Error> {
             corner, left, right
         );
         assert_eq!(corner, COLOR & 0x00ff_ffff);
-        assert_eq!(left, 0xff_0000);
+        assert_eq!(left, 0xff_8000);
         assert_eq!(right, TEXEL & 0x00ff_ffff);
     }
 
