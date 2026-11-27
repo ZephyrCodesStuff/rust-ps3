@@ -68,20 +68,28 @@ fn offset_table(image: &[u8], start: u32) -> Result<&[u8], ShaderError> {
     table.get(4..end).ok_or(ShaderError)
 }
 
-fn patch_embedded(offsets: &[u8], microcode: &mut [u8], value: &[f32]) -> Result<(), ShaderError> {
-    if value.is_empty() || value.len() > 4 {
+fn embedded_indices(
+    offsets: &[u8],
+    code_size: usize,
+    value_count: usize,
+) -> Result<impl Iterator<Item = usize> + use<'_>, ShaderError> {
+    if !(1..=4).contains(&value_count) {
         return Err(ShaderError);
     }
-    let length = value.len() * 4;
+    let length = value_count * 4;
     let indices = offsets.chunks_exact(4).map(|bytes| be32(bytes, 0) as usize);
-    if indices.clone().any(|index| {
-        index % 4 != 0
-            || index
-                .checked_add(length)
-                .is_none_or(|end| end > microcode.len())
-    }) {
+    if indices
+        .clone()
+        .any(|index| index % 4 != 0 || index.checked_add(length).is_none_or(|end| end > code_size))
+    {
         return Err(ShaderError);
     }
+    Ok(indices)
+}
+
+fn patch_embedded(offsets: &[u8], microcode: &mut [u8], value: &[f32]) -> Result<(), ShaderError> {
+    let indices = embedded_indices(offsets, microcode.len(), value.len())?;
+    let length = value.len() * 4;
     for index in indices {
         for (word, float) in microcode[index..index + length]
             .chunks_exact_mut(4)
@@ -214,6 +222,16 @@ impl<'a> FragmentProgram<'a> {
         self.program.constants()
     }
 
+    fn constant_offsets(&self, constant: Constant<'_>) -> Result<&[u8], ShaderError> {
+        if constant.internal {
+            return Err(ShaderError);
+        }
+        if constant.index == u32::MAX {
+            return Ok(&[]);
+        }
+        offset_table(self.program.image, constant.index)
+    }
+
     /// Updates one reflected constant row in a writable copy of the fragment
     /// program's microcode. Matrix rows have separate constant records.
     pub fn patch_constant(
@@ -222,19 +240,83 @@ impl<'a> FragmentProgram<'a> {
         microcode: &mut [u8],
         value: &[f32],
     ) -> Result<(), ShaderError> {
-        if constant.internal || microcode.len() != self.microcode().len() {
+        if microcode.len() != self.microcode().len() {
             return Err(ShaderError);
         }
-        let offsets = if constant.index == u32::MAX {
-            &[][..]
-        } else {
-            offset_table(self.program.image, constant.index)?
-        };
-        patch_embedded(offsets, microcode, value)
+        patch_embedded(self.constant_offsets(constant)?, microcode, value)
     }
 }
 
 impl Context {
+    /// Queues an update of one reflected PSL1GHT fragment constant row.
+    /// Call `refresh_fragment_program` after uploading the desired rows.
+    ///
+    /// # Safety
+    /// The constant must come from `shader`. The offset must identify that
+    /// program's live microcode in GPU memory, with accesses synchronized
+    /// around the transfer.
+    pub unsafe fn upload_fragment_constant(
+        &mut self,
+        shader: &FragmentProgram<'_>,
+        constant: Constant<'_>,
+        location: Location,
+        offset: u32,
+        value: &[f32],
+    ) -> Result<(), Error> {
+        let offsets = shader
+            .constant_offsets(constant)
+            .map_err(|_| Error::InvalidArgument)?;
+        unsafe {
+            self.upload_embedded_constants(
+                location,
+                offset,
+                shader.microcode().len(),
+                offsets,
+                value,
+            )
+        }
+    }
+
+    /// Refreshes the microcode address after queued fragment constant writes.
+    ///
+    /// # Safety
+    /// The address must identify valid, live fragment microcode. Observe
+    /// the same memory and synchronization rules as for fragment loading.
+    pub unsafe fn refresh_fragment_program(
+        &mut self,
+        location: Location,
+        offset: u32,
+    ) -> Result<(), Error> {
+        let address = fragment_address(location, offset)?;
+        unsafe { self.write_words(&[&[packet(0x08e4, 1), address]]) }
+    }
+
+    unsafe fn upload_embedded_constants(
+        &mut self,
+        location: Location,
+        offset: u32,
+        code_size: usize,
+        offsets: &[u8],
+        value: &[f32],
+    ) -> Result<(), Error> {
+        fragment_address(location, offset)?;
+        if code_size > (0x2000_0000 - offset) as usize {
+            return Err(Error::InvalidArgument);
+        }
+        let indices = embedded_indices(offsets, code_size, value.len())
+            .map_err(|_| Error::InvalidArgument)?;
+        let mut words = [0; 4];
+        for (word, component) in words.iter_mut().zip(value) {
+            *word = component.to_bits().rotate_left(16);
+        }
+        for index in indices {
+            unsafe {
+                self.inline_transfer(location, offset + index as u32, &words[..value.len()])?
+            };
+        }
+        Ok(())
+    }
+
     /// Uploads a vertex program and its internal constants.
     ///
     /// # Safety
@@ -346,12 +428,10 @@ impl Context {
         location: Location,
         set_output_mask: bool,
     ) -> Result<(), Error> {
-        let dma_context = u32::from(location as u8) + 1;
-        let alignment = 64 * dma_context;
-        if config.offset % alignment != 0 || config.offset >= 0x2000_0000 || config.registers > 48 {
+        let address = fragment_address(location, config.offset)?;
+        if config.registers > 48 {
             return Err(Error::InvalidArgument);
         }
-        let address = config.offset | dma_context;
         let mut words = [0; 38];
         words[0] = packet(0x08e4, 1);
         words[1] = address;
@@ -374,4 +454,12 @@ impl Context {
         words[count + 1] = config.control | (u32::from(config.registers.max(2)) << 24);
         unsafe { self.write_words(&[&words[..count + 2]]) }
     }
+}
+
+fn fragment_address(location: Location, offset: u32) -> Result<u32, Error> {
+    let dma_context = u32::from(location as u8) + 1;
+    if offset % (64 * dma_context) != 0 || offset >= 0x2000_0000 {
+        return Err(Error::InvalidArgument);
+    }
+    Ok(offset | dma_context)
 }

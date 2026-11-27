@@ -195,6 +195,29 @@ impl<'a> Program<'a> {
 }
 
 impl Context {
+    /// Queues an update of one reflected Cell SDK Cg fragment constant row.
+    /// Call `refresh_fragment_program` after uploading the desired rows.
+    ///
+    /// # Safety
+    /// The offset must identify the parameter's live fragment microcode
+    /// in GPU memory, with accesses synchronized around the transfer.
+    pub unsafe fn upload_cg_fragment_constant(
+        &mut self,
+        parameter: &Parameter<'_>,
+        location: Location,
+        offset: u32,
+        value: &[f32],
+    ) -> Result<(), Error> {
+        if be32(parameter.image, 0) != 7004 {
+            return Err(Error::InvalidArgument);
+        }
+        let size = be32(parameter.image, 24) as usize;
+        let offsets = parameter
+            .offset_bytes()
+            .map_err(|_| Error::InvalidArgument)?;
+        unsafe { self.upload_embedded_constants(location, offset, size, offsets, value) }
+    }
+
     /// Uploads a Cell SDK Cg vertex program and its internal defaults.
     ///
     /// # Safety

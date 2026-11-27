@@ -79,6 +79,10 @@ fn run() -> Result<(), Error> {
         .map_err(|_| Error::InvalidArgument)?;
     let fragment = FragmentProgram::parse(include_bytes!("../shaders/triangle.fpo"))
         .map_err(|_| Error::InvalidArgument)?;
+    let tint = fragment
+        .constants()
+        .find(|constant| constant.name.is_some_and(|name| name.to_bytes() == b"tint"))
+        .ok_or(Error::InvalidArgument)?;
     let textured_vertex = VertexProgram::parse(include_bytes!("../shaders/texture.vpo"))
         .map_err(|_| Error::InvalidArgument)?;
     let textured_fragment = FragmentProgram::parse(include_bytes!("../shaders/texture.fpo"))
@@ -106,6 +110,21 @@ fn run() -> Result<(), Error> {
     }
     let mut upload =
         unsafe { context.map_main(addr_of_mut!(TEXTURE_UPLOAD).cast(), IO_SIZE as u32)? };
+    #[cfg(feature = "verify-framebuffer")]
+    unsafe {
+        let words = core::array::from_fn::<_, 513, _>(|i| 0x1020_3040 + i as u32);
+        let guard = 0xface_cafeu32;
+        let tail = 4 + size_of_val(&words) as u32;
+        upload.write(0, &guard.to_be_bytes())?;
+        upload.write(tail, &guard.to_be_bytes())?;
+        context.inline_transfer(upload.location(), upload.offset() + 4, &words)?;
+        context.finish(0x1234_5672, 30_000)?;
+        assert_eq!(upload.read_word(0)?, guard);
+        for (i, word) in words.into_iter().enumerate() {
+            assert_eq!(upload.read_word(4 + i as u32 * 4)?, word);
+        }
+        assert_eq!(upload.read_word(tail)?, guard);
+    }
     let mut draw_done = unsafe { context.label(128)? };
 
     context.set_flip_mode(FlipMode::VSync);
@@ -182,6 +201,14 @@ fn run() -> Result<(), Error> {
             fragment_code.location(),
             fragment_code.offset(),
         )?;
+        context.upload_fragment_constant(
+            &fragment,
+            tint,
+            fragment_code.location(),
+            fragment_code.offset(),
+            &[1.0; 4],
+        )?;
+        context.refresh_fragment_program(fragment_code.location(), fragment_code.offset())?;
         let vertex_offset = vertices.offset();
         for (slot, offset) in [
             (0, vertex_offset),

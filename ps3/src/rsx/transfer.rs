@@ -1,4 +1,5 @@
 use super::commands::packet;
+use super::methods::{nv3062, nv308a};
 use super::{Context, Error, Location, Rect, TransferScale, TransferSurface, TransferSwizzle};
 
 const DMA_LOCAL: u32 = 0xfeed_0000;
@@ -96,6 +97,55 @@ impl TransferSurface {
 }
 
 impl Context {
+    /// Uploads native-endian words from the FIFO to GPU-visible memory.
+    ///
+    /// # Safety
+    /// The destination must remain mapped and cover the full write. Order
+    /// concurrent CPU or GPU accesses to that range around the transfer.
+    pub unsafe fn inline_transfer(
+        &mut self,
+        location: Location,
+        offset: u32,
+        words: &[u32],
+    ) -> Result<(), Error> {
+        if words.is_empty() {
+            return Ok(());
+        }
+        let bytes = u32::try_from(words.len())
+            .ok()
+            .and_then(|count| count.checked_mul(4))
+            .ok_or(Error::InvalidArgument)?;
+        if offset % 4 != 0 || offset.checked_add(bytes - 1).is_none() {
+            return Err(Error::InvalidArgument);
+        }
+
+        // Each image is one row of Y32 pixels. The transfer unit requires
+        // an aligned surface base and an even number of payload words.
+        let mut destination = offset;
+        for block in words.chunks(512) {
+            let count = block.len();
+            let padding = count % 2;
+            let extent = (1 << 16) | count as u32;
+            let setup = [
+                nv3062::SET_CONTEXT_DMA_IMAGE_DESTIN.header(1, true),
+                DMA_LOCAL + location as u32,
+                nv3062::SET_OFFSET_DESTIN.header(1, true),
+                destination & !63,
+                nv3062::SET_COLOR_FORMAT.header(2, true),
+                0x0b, // Y32
+                0x1000_1000,
+                nv308a::POINT.header(3, true),
+                (destination & 63) / 4,
+                extent,
+                extent,
+                nv308a::COLOR.header(count + padding, true),
+            ];
+            unsafe { self.write_words(&[&setup, block, &[0][..padding]])? };
+            destination = destination.wrapping_add(count as u32 * 4);
+        }
+        Ok(())
+    }
+
     /// Copies rectangular rows with the RSX memory-to-memory engine.
     ///
     /// # Safety

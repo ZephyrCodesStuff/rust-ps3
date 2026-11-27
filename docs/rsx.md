@@ -14,13 +14,16 @@ function descriptors.
 - Draw calls support vertex and index buffers, inline data, programmable
   shaders, render targets, depth and stencil testing, blending, and
   vertex and fragment textures.
-- DMA commands support pitched copies, scaling, and swizzled destinations.
+- DMA commands support pitched copies, inline word transfers, scaling,
+  and swizzled destinations.
   Labels, FIFO references, GCM events, and reports expose synchronization
   and feedback from the hardware.
 - `shader` reads PSL1GHT output and big-endian Cell SDK Cg revision 6.
   `shader::cgb` reads CGB vertex and fragment configurations and vertex
   default constants. The PSL1GHT and Cg readers can update embedded
   fragment constants in a writable copy of the microcode before upload.
+  They can also queue constant writes to an uploaded program and refresh
+  the program address before drawing.
 - `gtf::File` reads the texture descriptors and mip chains in Cell SDK
   GTF assets. Copy an image's bytes with `Buffer::write` and obtain the
   relocated texture descriptor with `Image::descriptor_at`.
@@ -62,7 +65,8 @@ older SDK's imports, add `--imports-only` with its `--sdk-abi` value.
 The `rsx-triangle` example passed in RPCS3 at 1280 × 720 under all three
 Cargo profiles. With
 `verify-framebuffer` and **Write Color Buffers** enabled, it checks
-the clear color, two independent draw paths, GPU copies and scaling,
+the clear color, two independent draw paths, a queued fragment constant
+update, inline transfers to main memory, GPU copies and scaling,
 swizzle output, a firmware FIFO refill, a user callback, and alternate
 display buffers. It also checks tile and Z-cull setup, including the
 stencil values passed on the ELFv1 stack.
