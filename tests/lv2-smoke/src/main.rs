@@ -136,6 +136,20 @@ unsafe fn memory() {
         sys_memory_container_destroy(container) == 0,
         "container destroy",
     );
+
+    check(
+        sys::portable::sys_memory_container_create(&mut container, 0x100000) == 0,
+        "portable container create",
+    );
+    check(
+        sys_memory_container_get_size(&mut info, container) == 0
+            && info.total_user_memory == 0x100000,
+        "portable container size",
+    );
+    check(
+        sys::portable::sys_memory_container_destroy(container) == 0,
+        "portable container destroy",
+    );
 }
 
 unsafe fn mmapper() {
@@ -334,6 +348,11 @@ unsafe fn synchronization() {
     check(sys_rwlock_create(&mut id, &attr) == 0, "rwlock create");
     check(sys_rwlock_trywlock(id) == 0, "rwlock try-write");
     check(sys_rwlock_wunlock(id) == 0, "rwlock write unlock");
+    check(
+        sys::portable::sys_rwlock_trywlock(id) == 0,
+        "portable rwlock try-write",
+    );
+    check(sys_rwlock_wunlock(id) == 0, "portable rwlock write unlock");
     check(sys_rwlock_destroy(id) == 0, "rwlock destroy");
 }
 

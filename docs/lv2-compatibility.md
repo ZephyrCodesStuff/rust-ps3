@@ -54,3 +54,16 @@ The firmware table comparison is a separate static check. Debug thread
 status currently reaches an RPCS3 implementation that does not fill the
 result, so the test exercises the import without validating the returned
 status.
+
+
+## Selecting the older supported calls
+
+Applications that target a range of firmware releases can use
+`ps3::sys::portable` for these three operations. It selects 126 for the
+try-write lock and 341/342 for memory containers, matching the public SDK
+1.92 calling conventions. These entries are present in all six tables
+above. The rest of the crate still uses the selected SDK feature.
+
+Use the portable create and destroy functions as a pair. The wrappers
+issue one syscall and report its status directly. They require a firmware
+and process that support the selected call.

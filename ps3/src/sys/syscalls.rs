@@ -105,6 +105,7 @@ macro_rules! define_syscall_actions {
 
 mod compat;
 mod mmapper;
+pub mod portable;
 pub mod raw;
 
 #[cfg(feature = "sdk-370")]
