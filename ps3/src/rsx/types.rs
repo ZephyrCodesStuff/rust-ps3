@@ -140,7 +140,9 @@ pub struct TransferSurface {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct TransferSwizzle {
     pub format: u16,
+    /// Base-2 logarithm of the target width in pixels.
     pub width: u8,
+    /// Base-2 logarithm of the target height in pixels.
     pub height: u8,
     pub offset: u32,
 }

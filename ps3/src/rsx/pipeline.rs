@@ -154,6 +154,42 @@ pub enum PolygonMode {
     Fill = 0x1b02,
 }
 
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ShadeModel {
+    Flat = 0x1d00,
+    Smooth = 0x1d01,
+}
+
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ClipPlane {
+    Disabled = 0,
+    LessThanZero = 1,
+    GreaterThanOrEqualToZero = 2,
+}
+
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum LogicOp {
+    Clear = 0x1500,
+    And = 0x1501,
+    AndReverse = 0x1502,
+    Copy = 0x1503,
+    AndInverted = 0x1504,
+    Noop = 0x1505,
+    Xor = 0x1506,
+    Or = 0x1507,
+    Nor = 0x1508,
+    Equiv = 0x1509,
+    Invert = 0x150a,
+    OrReverse = 0x150b,
+    CopyInverted = 0x150c,
+    OrInverted = 0x150d,
+    Nand = 0x150e,
+    Set = 0x150f,
+}
+
 impl Context {
     pub fn set_depth_compare(&mut self, compare: Compare) -> Result<(), Error> {
         unsafe { self.write_words(&[&[packet(0x0a6c, 1), compare as u32]]) }
@@ -244,5 +280,91 @@ impl Context {
 
     pub fn set_polygon_mode(&mut self, front: PolygonMode, back: PolygonMode) -> Result<(), Error> {
         unsafe { self.write_words(&[&[packet(0x1828, 2), front as u32, back as u32]]) }
+    }
+
+    pub fn set_shading(&mut self, mode: ShadeModel) -> Result<(), Error> {
+        unsafe { self.write_words(&[&[packet(0x0368, 1), mode as u32]]) }
+    }
+
+    pub fn set_dither_enabled(&mut self, enable: bool) -> Result<(), Error> {
+        unsafe { self.write_words(&[&[packet(0x0300, 1), enable.into()]]) }
+    }
+
+    pub fn set_logic_op(&mut self, operation: Option<LogicOp>) -> Result<(), Error> {
+        let words = match operation {
+            Some(op) => [packet(0x0374, 2), 1, op as u32],
+            None => [packet(0x0374, 2), 0, LogicOp::Copy as u32],
+        };
+        unsafe { self.write_words(&[&words]) }
+    }
+
+    /// Sets blending and RGBA write masks for the three additional color targets.
+    pub fn set_multiple_targets(
+        &mut self,
+        blend: [bool; 3],
+        masks: [[bool; 4]; 3],
+    ) -> Result<(), Error> {
+        let mut blend_word = 0;
+        let mut color_mask = 0;
+        for (i, (blend, mask)) in blend.into_iter().zip(masks).enumerate() {
+            let [r, g, b, a] = mask.map(u32::from);
+            blend_word |= u32::from(blend) << (i + 1);
+            color_mask |= (a | (r << 1) | (g << 2) | (b << 3)) << ((i + 1) * 4);
+        }
+        unsafe { self.write_words(&[&[packet(0x036c, 2), blend_word, color_mask]]) }
+    }
+
+    /// Sets polygon offset for points, lines, and triangles in that order.
+    pub fn set_polygon_offset(
+        &mut self,
+        enable: [bool; 3],
+        factor: f32,
+        bias: f32,
+    ) -> Result<(), Error> {
+        let [point, line, fill] = enable.map(u32::from);
+        unsafe {
+            self.write_words(&[&[
+                packet(0x0a60, 3),
+                point,
+                line,
+                fill,
+                packet(0x0a78, 2),
+                factor.to_bits(),
+                bias.to_bits(),
+            ]])
+        }
+    }
+
+    /// Enables the restart index for indexed strip and fan draws.
+    pub fn set_primitive_restart(&mut self, index: Option<u32>) -> Result<(), Error> {
+        unsafe {
+            self.write_words(&[&[
+                packet(0x1dac, 2),
+                u32::from(index.is_some()),
+                index.unwrap_or(0),
+            ]])
+        }
+    }
+
+    /// Sets the modulo operation mask for vertex attribute frequency division.
+    /// A clear bit selects division for the corresponding attribute.
+    pub fn set_vertex_frequency_modulo(&mut self, attributes: u16) -> Result<(), Error> {
+        unsafe { self.write_words(&[&[packet(0x1fc0, 1), attributes.into()]]) }
+    }
+
+    /// Invalidates RSX texture caches after updates to texture data.
+    pub fn invalidate_texture_cache(&mut self, vertex: bool, fragment: bool) -> Result<(), Error> {
+        use super::methods::nv4097::INVALIDATE_L2;
+        let mask = u32::from(fragment) | (u32::from(vertex) << 1);
+        unsafe { self.write_method(INVALIDATE_L2, true, &[mask]) }
+    }
+
+    pub fn set_user_clip_planes(&mut self, planes: [ClipPlane; 6]) -> Result<(), Error> {
+        use super::methods::nv4097::SET_USER_CLIP_PLANE_CONTROL;
+        let word = planes
+            .into_iter()
+            .enumerate()
+            .fold(0, |mask, (i, plane)| mask | ((plane as u32) << (i * 4)));
+        unsafe { self.write_method(SET_USER_CLIP_PLANE_CONTROL, true, &[word]) }
     }
 }

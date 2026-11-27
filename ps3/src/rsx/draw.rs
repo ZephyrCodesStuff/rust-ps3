@@ -198,6 +198,84 @@ impl Context {
         unsafe { self.write_words(&[&[packet(0x1740 + u16::from(slot) * 4, 1), 2]]) }
     }
 
+    /// Sets the immediate four-component value of a vertex attribute.
+    /// Disable its buffered array before using this value in a draw.
+    pub fn set_vertex_attribute_constant(
+        &mut self,
+        slot: u8,
+        value: [f32; 4],
+    ) -> Result<(), Error> {
+        if slot >= 16 {
+            return Err(Error::InvalidArgument);
+        }
+        unsafe {
+            self.write_words(&[
+                &[packet(0x1c00 + u16::from(slot) * 16, 4)],
+                &value.map(f32::to_bits),
+            ])
+        }
+    }
+
+    /// Draws interleaved vertex data supplied directly in the command stream.
+    ///
+    /// # Safety
+    ///
+    /// The words must match the active vertex formats and together encode
+    /// a whole number of vertices. A failed refill can leave an incomplete
+    /// primitive in the stream.
+    pub unsafe fn draw_inline(&mut self, primitive: Primitive, words: &[u32]) -> Result<(), Error> {
+        use super::methods::nv4097::INLINE_ARRAY;
+        unsafe { self.draw_inline_words(primitive, INLINE_ARRAY, words) }
+    }
+
+    /// Draws using 32-bit indices embedded in the command stream.
+    ///
+    /// # Safety
+    ///
+    /// Every index must refer to live bound vertex data. A failed refill
+    /// can leave an incomplete primitive in the stream.
+    pub unsafe fn draw_inline_indices(
+        &mut self,
+        primitive: Primitive,
+        indices: &[u32],
+    ) -> Result<(), Error> {
+        use super::methods::nv4097::ARRAY_ELEMENT32;
+        unsafe { self.draw_inline_words(primitive, ARRAY_ELEMENT32, indices) }
+    }
+
+    unsafe fn draw_inline_words(
+        &mut self,
+        primitive: Primitive,
+        method: Method,
+        words: &[u32],
+    ) -> Result<(), Error> {
+        if words.is_empty() {
+            return Ok(());
+        }
+        unsafe {
+            self.begin_draw(primitive)?;
+            for chunk in words.chunks(256) {
+                self.write_method(method, false, chunk)?;
+            }
+            self.write_words(&[&[packet(BEGIN_END, 1), 0]])
+        }
+    }
+
+    unsafe fn begin_draw(&mut self, primitive: Primitive) -> Result<(), Error> {
+        unsafe {
+            self.write_words(&[&[
+                Method::new(INVALIDATE_VERTEX_CACHE)
+                    .unwrap()
+                    .header(3, false),
+                0,
+                0,
+                0,
+                packet(BEGIN_END, 1),
+                primitive as u32,
+            ]])
+        }
+    }
+
     /// Draws vertices in order from the bound attribute arrays.
     ///
     /// # Safety
@@ -221,16 +299,7 @@ impl Context {
             return Err(Error::InvalidArgument);
         }
         unsafe {
-            self.write_words(&[&[
-                Method::new(INVALIDATE_VERTEX_CACHE)
-                    .unwrap()
-                    .header(3, false),
-                0,
-                0,
-                0,
-                packet(BEGIN_END, 1),
-                primitive as u32,
-            ]])?;
+            self.begin_draw(primitive)?;
             self.emit_draw_batches(DRAW_ARRAYS, first, count, 256)?;
             self.write_words(&[&[packet(BEGIN_END, 1), 0]])
         }

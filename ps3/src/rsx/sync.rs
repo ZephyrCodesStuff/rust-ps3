@@ -3,7 +3,7 @@ use core::ptr::NonNull;
 use crate::sys::sys_timer_usleep;
 
 use super::commands::packet;
-use super::{raw, Context, Error};
+use super::{raw, Context, Error, Location};
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum LabelStage {
@@ -125,6 +125,36 @@ impl Context {
     /// Enables or disables the Z-pass query counter.
     pub fn set_pixel_count_enabled(&mut self, enable: bool) -> Result<(), Error> {
         unsafe { self.write_words(&[&[packet(0x17cc, 1), enable.into()]]) }
+    }
+
+    pub fn set_report_location(&mut self, location: Location) -> Result<(), Error> {
+        use super::methods::nv4097::SET_CONTEXT_DMA_REPORT;
+        let dma = match location {
+            Location::Local => 0x6662_6660,
+            Location::Main => 0xbad6_8000,
+        };
+        unsafe { self.write_method(SET_CONTEXT_DMA_REPORT, true, &[dma]) }
+    }
+
+    /// Uses an occlusion report to select whether subsequent draws execute.
+    ///
+    /// # Safety
+    ///
+    /// A selected report must be mapped in the current report location and
+    /// have been scheduled before this command.
+    pub unsafe fn set_conditional_render(&mut self, report: Option<u32>) -> Result<(), Error> {
+        match report {
+            Some(index) if index <= 0x000f_ffff => unsafe {
+                self.write_words(&[&[
+                    packet(0x0100, 1),
+                    0,
+                    packet(0x1e98, 1),
+                    0x0200_0000 | index << 4,
+                ]])
+            },
+            Some(_) => Err(Error::InvalidArgument),
+            None => unsafe { self.write_words(&[&[packet(0x1e98, 1), 0x0100_0000]]) },
+        }
     }
 
     pub fn clear_report(&mut self, kind: ReportKind) -> Result<(), Error> {

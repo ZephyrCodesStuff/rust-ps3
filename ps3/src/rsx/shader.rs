@@ -1,4 +1,7 @@
-//! RSX microcode and reflection tables emitted by PSL1GHT's `cgcomp`.
+//! RSX shader microcode and reflection for PSL1GHT and Cell SDK formats.
+
+pub mod cg;
+pub mod cgb;
 
 use core::ffi::CStr;
 
@@ -11,6 +14,14 @@ const CONSTANT_SIZE: usize = 28;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ShaderError;
+
+impl core::fmt::Display for ShaderError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.write_str("invalid RSX shader binary or parameter")
+    }
+}
+
+impl core::error::Error for ShaderError {}
 
 #[derive(Clone, Copy, Debug)]
 pub struct Attribute<'a> {
@@ -191,15 +202,7 @@ impl Context {
             return Err(Error::InvalidArgument);
         }
         unsafe {
-            self.write_words(&[&[packet(0x1e9c, 2), start, start]])?;
-            let mut inline_words = [0; 32];
-            for instructions in shader.microcode().chunks(128) {
-                let count = instructions.len() / 4;
-                for (index, word) in inline_words[..count].iter_mut().enumerate() {
-                    *word = be32(instructions, index * 4);
-                }
-                self.write_words(&[&[packet(0x0b80, count)], &inline_words[..count]])?;
-            }
+            self.upload_vertex_microcode(start, shader.microcode())?;
             self.write_words(&[&[
                 packet(0x1ff0, 2),
                 shader.input_mask,
@@ -215,6 +218,20 @@ impl Context {
                 let slot = u32::from(shader.constant_start) + value.index;
                 self.write_words(&[&[packet(0x1efc, 5), slot], &value.initial_value])?;
             }
+        }
+        Ok(())
+    }
+
+    /// Uploads complete, validated 16-byte instructions to vertex RAM.
+    unsafe fn upload_vertex_microcode(&mut self, start: u32, code: &[u8]) -> Result<(), Error> {
+        unsafe { self.write_words(&[&[packet(0x1e9c, 2), start, start]])? };
+        let mut words = [0; 32];
+        for instructions in code.chunks(128) {
+            let count = instructions.len() / 4;
+            for (index, word) in words[..count].iter_mut().enumerate() {
+                *word = be32(instructions, index * 4);
+            }
+            unsafe { self.write_words(&[&[packet(0x0b80, count)], &words[..count]])? };
         }
         Ok(())
     }
@@ -252,26 +269,53 @@ impl Context {
         location: Location,
         offset: u32,
     ) -> Result<(), Error> {
-        if offset & 63 != 0 || offset >= 0x2000_0000 || shader.program.registers > 48 {
+        if shader.program.registers > 48 {
             return Err(Error::InvalidArgument);
         }
-        let address = offset | (u32::from(location as u8) + 1);
-        let mut words = [0; 36];
+        let config = cgb::FragmentConfiguration {
+            offset,
+            texcoords: shader.texcoords,
+            texcoords_2d: shader.texcoords_2d,
+            texcoords_centroid: shader.texcoords_3d,
+            control: shader.control | (1 << 10),
+            registers: shader.program.registers as u8,
+            ..Default::default()
+        };
+        unsafe { self.emit_fragment_config(&config, location, false) }
+    }
+
+    unsafe fn emit_fragment_config(
+        &mut self,
+        config: &cgb::FragmentConfiguration,
+        location: Location,
+        set_output_mask: bool,
+    ) -> Result<(), Error> {
+        let dma_context = u32::from(location as u8) + 1;
+        let alignment = 64 * dma_context;
+        if config.offset % alignment != 0 || config.offset >= 0x2000_0000 || config.registers > 48 {
+            return Err(Error::InvalidArgument);
+        }
+        let address = config.offset | dma_context;
+        let mut words = [0; 38];
         words[0] = packet(0x08e4, 1);
         words[1] = address;
         let mut count = 2;
+        if set_output_mask {
+            words[2] = packet(0x1ff4, 1);
+            words[3] = config.attribute_input_mask;
+            count += 2;
+        }
         for index in 0..16 {
-            if shader.texcoords & (1 << index) != 0 {
+            if config.texcoords & (1 << index) != 0 {
                 words[count] = packet(0x0b40 + index * 4, 1);
-                let two_d = u32::from((shader.texcoords_2d >> index) & 1);
-                let three_d = u32::from((shader.texcoords_3d >> index) & 1);
-                words[count + 1] = two_d | (three_d << 4);
+                let two_d = u32::from((config.texcoords_2d >> index) & 1);
+                let centroid = u32::from((config.texcoords_centroid >> index) & 1);
+                words[count + 1] = two_d | (centroid << 4);
                 count += 2;
             }
         }
         words[count] = packet(0x1d60, 1);
-        words[count + 1] =
-            shader.control | (u32::from(shader.program.registers.max(2)) << 24) | (1 << 10);
+        words[count + 1] = config.control | (u32::from(config.registers.max(2)) << 24);
         unsafe { self.write_words(&[&words[..count + 2]]) }
     }
 }

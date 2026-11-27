@@ -1,5 +1,6 @@
 use core::ptr::{addr_of_mut, NonNull};
 
+use crate::sys::raw::PpuFunctionDescriptor;
 use crate::sys::sys_timer_usleep;
 use crate::sys::syscalls::call_compact;
 
@@ -21,6 +22,21 @@ pub enum Error {
     OutOfMemory,
     Timeout,
 }
+
+impl core::fmt::Display for Error {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self {
+            Self::Firmware(status) => write!(f, "GCM returned {:#010x}", *status as u32),
+            Self::InvalidArgument => f.write_str("invalid RSX argument"),
+            Self::InvalidContext => f.write_str("invalid RSX context or display state"),
+            Self::CommandBufferFull => f.write_str("RSX command buffer is full"),
+            Self::OutOfMemory => f.write_str("RSX allocation does not fit in the memory arena"),
+            Self::Timeout => f.write_str("timed out waiting for the RSX"),
+        }
+    }
+}
+
+impl core::error::Error for Error {}
 
 impl Error {
     pub(crate) fn status(status: i32) -> Result<(), Self> {
@@ -53,6 +69,21 @@ impl Method {
         }
     }
 
+    pub const fn address(self) -> u16 {
+        self.0
+    }
+
+    /// Advances within a method family while preserving its subchannel.
+    pub const fn with_offset(self, bytes: u16) -> Option<Self> {
+        let Some(address) = self.0.checked_add(bytes) else {
+            return None;
+        };
+        if address & 0xe000 != self.0 & 0xe000 {
+            return None;
+        }
+        Self::new(address)
+    }
+
     pub(crate) const fn header(self, count: usize, incrementing: bool) -> u32 {
         let flag = if incrementing { 0 } else { NON_INCREMENTING };
         flag | (count as u32) << 18 | self.0 as u32
@@ -62,6 +93,34 @@ impl Method {
 /// Exclusive access to a GCM command context.
 pub struct Context {
     data: NonNull<ContextData>,
+}
+
+impl ContextData {
+    /// Describes a caller-owned command buffer. The final word is held for
+    /// a refill callback to install a jump to the next segment.
+    pub fn for_buffer(
+        buffer: &mut [u32],
+        callback: Option<&PpuFunctionDescriptor>,
+    ) -> Result<Self, Error> {
+        if buffer.len() < 2 {
+            return Err(Error::InvalidArgument);
+        }
+        let begin =
+            u32::try_from(buffer.as_mut_ptr() as usize).map_err(|_| Error::InvalidArgument)?;
+        let length =
+            u32::try_from(core::mem::size_of_val(buffer)).map_err(|_| Error::InvalidArgument)?;
+        let end = begin
+            .checked_add(length - 4)
+            .ok_or(Error::InvalidArgument)?;
+        let address = callback.map_or(0, |descriptor| core::ptr::from_ref(descriptor) as usize);
+        let callback = u32::try_from(address).map_err(|_| Error::InvalidArgument)?;
+        Ok(Self {
+            begin,
+            end,
+            current: begin,
+            callback,
+        })
+    }
 }
 
 impl Context {
@@ -243,7 +302,10 @@ impl Context {
         incrementing: bool,
         words: &[u32],
     ) -> Result<(), Error> {
-        if words.is_empty() || words.len() > MAX_METHOD_WORDS {
+        if words.is_empty()
+            || words.len() > MAX_METHOD_WORDS
+            || (incrementing && method.with_offset(((words.len() - 1) * 4) as u16).is_none())
+        {
             return Err(Error::InvalidArgument);
         }
         unsafe { self.write_words(&[&[method.header(words.len(), incrementing)], words]) }

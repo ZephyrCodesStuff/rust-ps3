@@ -2,14 +2,18 @@
 #![no_main]
 
 use core::ptr::addr_of_mut;
+#[cfg(feature = "verify-framebuffer")]
+use core::sync::atomic::{AtomicU32, Ordering};
 
 use ps3::println;
 use ps3::rsx::{
     shader::{FragmentProgram, VertexProgram},
     video, Blend, Buffer, ClearMask, Compare, Context, Error, FaceWinding, FlipMode, IndexType,
-    IoBuffer, LabelStage, PolygonMode, Primitive, Sampler, Surface, Texture, TransferMemory,
-    VertexAttribute, VertexType, Viewport,
+    IoBuffer, LabelStage, PolygonMode, Primitive, Rect, Sampler, ScaleTarget, Swapchain, Texture,
+    TransferMemory, TransferScale, TransferSurface, VertexAttribute, VertexType, Viewport,
 };
+#[cfg(feature = "verify-framebuffer")]
+use ps3::rsx::{Event, EventCallback};
 use ps3::sys::sys_timer_usleep;
 
 const MIB: usize = 1024 * 1024;
@@ -28,6 +32,13 @@ const VERTICES: [[f32; 8]; 6] = [
 
 static mut IO: IoBuffer<IO_SIZE> = IoBuffer([0; IO_SIZE]);
 static mut TEXTURE_UPLOAD: IoBuffer<IO_SIZE> = IoBuffer([0; IO_SIZE]);
+#[cfg(feature = "verify-framebuffer")]
+static USER_EVENT: AtomicU32 = AtomicU32::new(0);
+
+#[cfg(feature = "verify-framebuffer")]
+extern "C" fn on_user_event(cause: u32) {
+    USER_EVENT.store(cause, Ordering::Release);
+}
 
 #[ps3::main]
 fn main() {
@@ -38,12 +49,32 @@ fn main() {
 
 fn run() -> Result<(), Error> {
     let mut context = unsafe { Context::init(64 * 1024, &mut (*addr_of_mut!(IO)).0)? };
+    #[cfg(feature = "verify-framebuffer")]
+    unsafe {
+        // Fill the first command segment and trigger the firmware refill.
+        let fifo = context.as_raw();
+        let old_end = (*fifo).end;
+        let remaining_words = (old_end - (*fifo).current) / 4;
+        context.nop(remaining_words as usize + 32)?;
+        assert_ne!((*fifo).end, old_end);
+        context.finish(0x1234_5675, 30_000)?;
+
+        let callback = EventCallback::new(on_user_event)?;
+        context.set_event_handler(Event::User, Some(callback));
+        context.user_event(0x0001_4321)?;
+        context.finish(0x1234_5673, 30_000)?;
+        for _ in 0..10_000 {
+            if USER_EVENT.load(Ordering::Acquire) != 0 {
+                break;
+            }
+            sys_timer_usleep(100);
+        }
+        context.set_event_handler(Event::User, None);
+        assert_eq!(USER_EVENT.load(Ordering::Acquire), 0x0001_4321);
+    }
     let config = context.configuration();
     let output = video::Output::Primary;
     let mode = output.state(0)?.display_mode;
-    let size = video::resolution(mode.resolution_id)?;
-    let pitch = (u32::from(size.width) * 4).next_multiple_of(64);
-    let color_bytes = pitch * u32::from(size.height);
     let vertex = VertexProgram::parse(include_bytes!("../shaders/triangle.vpo"))
         .map_err(|_| Error::InvalidArgument)?;
     let fragment = FragmentProgram::parse(include_bytes!("../shaders/triangle.fpo"))
@@ -54,42 +85,30 @@ fn run() -> Result<(), Error> {
         .map_err(|_| Error::InvalidArgument)?;
     // This app owns the entire local-memory range supplied by GCM.
     let mut vram = unsafe { context.local_arena(0..config.local_size)? };
-    let framebuffer = vram.allocate(color_bytes, 64)?;
-    let depth = vram.allocate(color_bytes, 64)?;
+    #[cfg(feature = "verify-framebuffer")]
+    verify_tiling(&mut context, &mut vram)?;
+    let mut display = unsafe { Swapchain::new(&mut context, &mut vram, output, mode, [0, 1])? };
+    let back = display.back_buffer().ok_or(Error::InvalidContext)?;
+    let size = back.resolution();
+    let depth = vram.allocate(back.storage().size(), 64)?;
+    let surface = back.surface(&depth)?;
+    let first_offset = back.storage().offset();
     let mut vertices = vram.allocate(size_of_val(&VERTICES) as u32, 128)?;
     let mut fragment_code = vram.allocate(fragment.microcode().len() as u32, 128)?;
     let mut textured_code = vram.allocate(textured_fragment.microcode().len() as u32, 128)?;
     let mut indices = vram.allocate(6, 128)?;
     let texels = vram.allocate(TEX_PITCH * 4, 128)?;
-    if context.address_to_offset(framebuffer.address())? != framebuffer.offset() {
+    let scaled = vram.allocate(TEX_PITCH * 8, 128)?;
+    #[cfg(feature = "verify-framebuffer")]
+    let swizzled = vram.allocate(8 * 8 * 4, 128)?;
+    if context.address_to_offset(back.storage().address())? != first_offset {
         return Err(Error::InvalidContext);
     }
     let mut upload =
         unsafe { context.map_main(addr_of_mut!(TEXTURE_UPLOAD).cast(), IO_SIZE as u32)? };
     let mut draw_done = unsafe { context.label(128)? };
 
-    output.configure(
-        mode.resolution_id,
-        video::Format::Xrgb,
-        mode.aspect,
-        pitch,
-        false,
-    )?;
     context.set_flip_mode(FlipMode::VSync);
-
-    let surface = Surface {
-        kind: 1,         // Linear framebuffer
-        color_format: 8, // A8R8G8B8
-        color_target: 1, // Color target 0
-        color_offset: [framebuffer.offset(), 0, 0, 0],
-        color_pitch: [pitch, 64, 64, 64],
-        depth_format: 2, // Z24S8
-        depth_offset: depth.offset(),
-        depth_pitch: pitch,
-        width: size.width,
-        height: size.height,
-        ..Default::default()
-    };
     unsafe {
         let vertex_bytes =
             core::slice::from_raw_parts(VERTICES.as_ptr().cast(), size_of_val(&VERTICES));
@@ -108,14 +127,42 @@ fn run() -> Result<(), Error> {
         context.copy_rows(region(&upload), region(&texels), 16, 4)?;
         context.finish(0x1234_5677, 30_000)?;
         upload.unmap_main()?;
-
-        context.set_display_buffer(
-            0,
-            framebuffer.offset(),
-            pitch,
-            size.width.into(),
-            size.height.into(),
+        let scaler = TransferScale::argb8(
+            region(&texels),
+            [4, 4],
+            Rect {
+                x: 0,
+                y: 0,
+                width: 8,
+                height: 8,
+            },
+            false,
         )?;
+        context.scale_image(
+            texels.location(),
+            scaled.location(),
+            &scaler,
+            ScaleTarget::Linear(TransferSurface::argb8(scaled.offset(), TEX_PITCH as u16)),
+        )?;
+        context.finish(0x1234_5676, 30_000)?;
+        #[cfg(feature = "verify-framebuffer")]
+        {
+            context.scale_image(
+                texels.location(),
+                swizzled.location(),
+                &scaler,
+                ScaleTarget::Swizzled(ps3::rsx::TransferSwizzle {
+                    format: 0x0a,
+                    width: 3,
+                    height: 3,
+                    offset: swizzled.offset(),
+                }),
+            )?;
+            context.finish(0x1234_5674, 30_000)?;
+            assert_eq!(swizzled.read_word(0)?, TEXEL);
+            assert_eq!(swizzled.read_word(swizzled.size() - 4)?, TEXEL);
+        }
+
         context.set_surface(&surface)?;
         let viewport = Viewport::for_surface(size.width, size.height);
         context.set_viewport(&viewport)?;
@@ -158,7 +205,7 @@ fn run() -> Result<(), Error> {
             textured_code.location(),
             textured_code.offset(),
         )?;
-        let texture = Texture::linear_argb8(texels.location(), texels.offset(), 4, 4, TEX_PITCH)?;
+        let texture = Texture::linear_argb8(scaled.location(), scaled.offset(), 8, 8, TEX_PITCH)?;
         context.bind_texture(0, &texture, &Sampler::default())?;
         context.draw_indexed(
             Primitive::Triangles,
@@ -170,14 +217,16 @@ fn run() -> Result<(), Error> {
         draw_done.write(0);
         context.signal_label(&draw_done, LabelStage::Backend, 0x0123_4567)?;
         context.wait_label(&draw_done, 0x0123_4567)?;
-        context.reset_flip_status();
-        context.flip(0)?;
+        display.present(&mut context)?;
         context.finish(0x1234_5678, 30_000)?;
     }
     draw_done.wait(0x0123_4567, 30_000)?;
-    context.wait_for_display_flip(30_000)?;
+    display.wait(&context, 30_000)?;
     #[cfg(feature = "verify-framebuffer")]
     unsafe {
+        let front = display.front_buffer().ok_or(Error::InvalidContext)?;
+        let pitch = front.pitch();
+        let framebuffer = front.storage();
         let pixel = |x, y| {
             framebuffer
                 .read_word(pitch * y + x * 4)
@@ -196,11 +245,79 @@ fn run() -> Result<(), Error> {
         assert_eq!(right, TEXEL & 0x00ff_ffff);
     }
 
-    // Let the first flip become visible before exiting the example.
+    // Show the rendered triangles before confirming that the buffers alternate.
     sys_timer_usleep(500_000);
+    let next = display.back_buffer().ok_or(Error::InvalidContext)?;
+    let next_offset = next.storage().offset();
+    assert_ne!(next_offset, first_offset);
+    unsafe {
+        context.set_surface(&next.surface(&depth)?)?;
+        context.set_clear_color(COLOR)?;
+        context.clear(ClearMask::COLOR)?;
+        display.present(&mut context)?;
+    }
+    display.wait(&context, 30_000)?;
+    assert_eq!(
+        display
+            .front_buffer()
+            .ok_or(Error::InvalidContext)?
+            .storage()
+            .offset(),
+        next_offset,
+    );
     println!(
         "RSX triangle and flip passed ({}x{})",
         size.width, size.height
     );
+    Ok(())
+}
+
+#[cfg(feature = "verify-framebuffer")]
+fn verify_tiling(context: &mut Context, arena: &mut ps3::rsx::LocalArena) -> Result<(), Error> {
+    use ps3::rsx::{
+        raw, Antialias, DepthFormat, Tile, TileCompression, ZCull, ZCullDirection, ZCullFormat,
+    };
+
+    let scratch = arena.allocate(0x10000, 0x10000)?;
+    unsafe {
+        context.bind_tile(
+            0,
+            &Tile {
+                location: scratch.location(),
+                offset: scratch.offset(),
+                size: scratch.size(),
+                pitch: raw::get_tiled_pitch_size(256),
+                compression: TileCompression::Disabled,
+                tag_base: 0,
+                bank: 0,
+            },
+        )?;
+        context.unbind_tile(0)?;
+
+        context.bind_zcull(
+            0,
+            &ZCull {
+                offset: scratch.offset(),
+                width: 64,
+                height: 64,
+                start: 0,
+                depth: DepthFormat::Z24S8,
+                antialias: Antialias::Single,
+                direction: ZCullDirection::Less,
+                format: ZCullFormat::LeadingOnes,
+                stencil_compare: Compare::NotEqual,
+                stencil_reference: 0xab,
+                stencil_mask: 0xe7,
+            },
+        )?;
+        let info = raw::get_zcull_info();
+        if info.is_null() {
+            return Err(Error::InvalidContext);
+        }
+        // The compare mode, reference and mask arrive via ELFv1 stack arguments.
+        let status = core::ptr::addr_of!((*info).status0).read_volatile();
+        assert_eq!(status >> 12, 0xe7ab5);
+        context.unbind_zcull(0)?;
+    }
     Ok(())
 }

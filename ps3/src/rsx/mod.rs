@@ -5,26 +5,35 @@
 
 mod commands;
 mod context;
+mod display;
 mod draw;
+mod event;
 mod memory;
+pub mod methods;
 mod pipeline;
 pub mod raw;
 pub mod shader;
 mod sync;
 mod texture;
+mod tiled;
 mod transfer;
 pub mod types;
 pub mod video;
 
 pub use commands::ClearMask;
 pub use context::{Context, Error, FlipMode, Method};
+pub use display::{Framebuffer, Swapchain};
 pub use draw::{IndexType, Location, Primitive, Rect, VertexAttribute, VertexType, Viewport};
+pub use event::{Event, EventCallback};
 pub use memory::{Buffer, IoBuffer, LocalArena};
 pub use pipeline::{
-    Blend, BlendChannel, BlendEquation, BlendFactor, Compare, CullFace, FaceWinding, PolygonMode,
-    StencilAction, StencilFace,
+    Blend, BlendChannel, BlendEquation, BlendFactor, ClipPlane, Compare, CullFace, FaceWinding,
+    LogicOp, PolygonMode, ShadeModel, StencilAction, StencilFace,
 };
 pub use sync::{Label, LabelStage, ReportKind};
 pub use texture::{MagFilter, MinFilter, Sampler, WrapMode};
-pub use transfer::TransferMemory;
+pub use tiled::{
+    Antialias, DepthFormat, Tile, TileCompression, ZCull, ZCullDirection, ZCullFormat,
+};
+pub use transfer::{ScaleTarget, TransferMemory};
 pub use types::*;

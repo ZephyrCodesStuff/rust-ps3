@@ -60,6 +60,7 @@ See `examples/` directory for sample programs (`examples/hello-world` and `examp
   - [x] Vertex and index buffers, shader upload, and triangle rendering
   - [x] Texture sampling and GPU memory copies
   - [x] VRAM allocation, main-memory mapping, and GPU semaphore labels
+  - [x] Double buffering, GCM callbacks, and tiled and Z-cull bindings
 - [ ] `std` support
 - [ ] Automated self / `EBOOT.BIN` packaging
 
@@ -138,10 +139,11 @@ You can run `EBOOT.ELF` directly in [RPCS3](https://rpcs3.net/).
 Enable the `rsx` feature for `ps3::rsx`. It provides GCM firmware imports,
 PPU-layout graphics records, a command FIFO, and video output configuration.
 Use `moldier patch` to prepare the executable's imports before running it.
+The [RSX notes](docs/rsx.md) describe the API and verification.
 
 The `rsx-triangle` example maps a 1 MiB-aligned I/O buffer, sets up a local
 framebuffer, and draws two triangles. One uses indexed geometry and a
-texture copied into place by the GPU. Build it with
+texture copied and scaled into place by the GPU. Build it with
 `./scripts/build.sh rsx-triangle`. The example shows the memory ownership
 and synchronization needed to submit commands.
 
