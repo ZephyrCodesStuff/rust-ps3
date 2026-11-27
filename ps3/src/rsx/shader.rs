@@ -56,6 +56,43 @@ fn be32(bytes: &[u8], offset: usize) -> u32 {
     u32::from_be_bytes(bytes[offset..offset + 4].try_into().unwrap())
 }
 
+fn offset_table(image: &[u8], start: u32) -> Result<&[u8], ShaderError> {
+    let table = image.get(start as usize..).ok_or(ShaderError)?;
+    if table.len() < 4 {
+        return Err(ShaderError);
+    }
+    let bytes = (be32(table, 0) as usize)
+        .checked_mul(4)
+        .ok_or(ShaderError)?;
+    let end = bytes.checked_add(4).ok_or(ShaderError)?;
+    table.get(4..end).ok_or(ShaderError)
+}
+
+fn patch_embedded(offsets: &[u8], microcode: &mut [u8], value: &[f32]) -> Result<(), ShaderError> {
+    if value.is_empty() || value.len() > 4 {
+        return Err(ShaderError);
+    }
+    let length = value.len() * 4;
+    let indices = offsets.chunks_exact(4).map(|bytes| be32(bytes, 0) as usize);
+    if indices.clone().any(|index| {
+        index % 4 != 0
+            || index
+                .checked_add(length)
+                .is_none_or(|end| end > microcode.len())
+    }) {
+        return Err(ShaderError);
+    }
+    for index in indices {
+        for (word, float) in microcode[index..index + length]
+            .chunks_exact_mut(4)
+            .zip(value)
+        {
+            word.copy_from_slice(&float.to_bits().rotate_left(16).to_be_bytes());
+        }
+    }
+    Ok(())
+}
+
 impl<'a> Program<'a> {
     fn parse(image: &'a [u8], magic: &[u8; 2]) -> Result<Self, ShaderError> {
         if image.len() < 36 || &image[..2] != magic {
@@ -175,6 +212,25 @@ impl<'a> FragmentProgram<'a> {
 
     pub fn constants(&self) -> impl ExactSizeIterator<Item = Constant<'a>> + '_ {
         self.program.constants()
+    }
+
+    /// Updates one reflected constant row in a writable copy of the fragment
+    /// program's microcode. Matrix rows have separate constant records.
+    pub fn patch_constant(
+        &self,
+        constant: Constant<'_>,
+        microcode: &mut [u8],
+        value: &[f32],
+    ) -> Result<(), ShaderError> {
+        if constant.internal || microcode.len() != self.microcode().len() {
+            return Err(ShaderError);
+        }
+        let offsets = if constant.index == u32::MAX {
+            &[][..]
+        } else {
+            offset_table(self.program.image, constant.index)?
+        };
+        patch_embedded(offsets, microcode, value)
     }
 }
 

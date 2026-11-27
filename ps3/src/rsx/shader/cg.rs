@@ -3,7 +3,7 @@
 use core::ffi::CStr;
 
 use super::cgb::{FragmentConfiguration, VertexConfiguration};
-use super::{be16, be32, ShaderError, INSTRUCTION_SIZE};
+use super::{be16, be32, offset_table, patch_embedded, ShaderError, INSTRUCTION_SIZE};
 use crate::rsx::commands::packet;
 use crate::rsx::{Context, Error, Location};
 
@@ -34,17 +34,20 @@ pub struct Parameter<'a> {
 }
 
 impl Parameter<'_> {
+    fn offset_bytes(&self) -> Result<&[u8], ShaderError> {
+        if self.embedded_constants == 0 {
+            Ok(&[])
+        } else {
+            offset_table(self.image, self.embedded_constants)
+        }
+    }
+
     /// Returns the byte offsets of inlined fragment constants in the microcode.
     pub fn embedded_offsets(&self) -> Result<impl ExactSizeIterator<Item = u32> + '_, ShaderError> {
-        let offsets = if self.embedded_constants == 0 {
-            &[][..]
-        } else {
-            let header = region(self.image, self.embedded_constants, 4)?;
-            let count = be32(header, 0) as usize;
-            let start = self.embedded_constants.checked_add(4).ok_or(ShaderError)?;
-            region(self.image, start, count.checked_mul(4).ok_or(ShaderError)?)?
-        };
-        Ok(offsets.chunks_exact(4).map(|offset| be32(offset, 0)))
+        Ok(self
+            .offset_bytes()?
+            .chunks_exact(4)
+            .map(|offset| be32(offset, 0)))
     }
 
     /// Updates the embedded copies of a fragment parameter. RSX fragment
@@ -54,28 +57,7 @@ impl Parameter<'_> {
         microcode: &mut [u8],
         value: &[f32],
     ) -> Result<(), ShaderError> {
-        if value.is_empty() || value.len() > 4 {
-            return Err(ShaderError);
-        }
-        let length = value.len() * 4;
-        if self.embedded_offsets()?.any(|offset| {
-            offset % 4 != 0
-                || (offset as usize)
-                    .checked_add(length)
-                    .is_none_or(|end| end > microcode.len())
-        }) {
-            return Err(ShaderError);
-        }
-        for offset in self.embedded_offsets()? {
-            let offset = offset as usize;
-            for (word, float) in microcode[offset..offset + length]
-                .chunks_exact_mut(4)
-                .zip(value)
-            {
-                word.copy_from_slice(&float.to_bits().rotate_left(16).to_be_bytes());
-            }
-        }
-        Ok(())
+        patch_embedded(self.offset_bytes()?, microcode, value)
     }
 }
 

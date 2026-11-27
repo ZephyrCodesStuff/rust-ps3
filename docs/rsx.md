@@ -19,7 +19,11 @@ function descriptors.
   and feedback from the hardware.
 - `shader` reads PSL1GHT output and big-endian Cell SDK Cg revision 6.
   `shader::cgb` reads CGB vertex and fragment configurations and vertex
-  default constants.
+  default constants. The PSL1GHT and Cg readers can update embedded
+  fragment constants in a writable copy of the microcode before upload.
+- `gtf::File` reads the texture descriptors and mip chains in Cell SDK
+  GTF assets. Copy an image's bytes with `Buffer::write` and obtain the
+  relocated texture descriptor with `Image::descriptor_at`.
 - `rsx::raw` exposes direct GCM firmware calls. `rsx::methods` names
   the hardware methods from the SDK, and `Context::write_method` emits
   incrementing and non-incrementing command packets.
@@ -63,7 +67,9 @@ swizzle output, a firmware FIFO refill, a user callback, and alternate
 display buffers. It also checks tile and Z-cull setup, including the
 stencil values passed on the ELFv1 stack.
 
-The Cg reader was tested against a vertex and fragment binary shipped
-with SDK 4.75. The Cg and CGB vertex upload paths were exercised in
-RPCS3. Physical console tests and one-for-one typed wrappers for the
-remaining GCM command helpers are still open.
+The Cg reader was tested with vertex and fragment binaries shipped
+with SDK 4.75, including a fragment parameter with five embedded
+locations. GTF decoding was checked with single-texture and
+multi-texture SDK samples. The Cg and CGB vertex upload paths were
+exercised in RPCS3. Physical console tests and one-for-one typed
+wrappers for the remaining GCM command helpers are still open.

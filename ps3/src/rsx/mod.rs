@@ -8,6 +8,7 @@ mod context;
 mod display;
 mod draw;
 mod event;
+pub mod gtf;
 mod memory;
 pub mod methods;
 mod pipeline;
