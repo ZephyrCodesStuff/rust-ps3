@@ -67,3 +67,30 @@ above. The rest of the crate still uses the selected SDK feature.
 Use the portable create and destroy functions as a pair. The wrappers
 issue one syscall and report its status directly. They require a firmware
 and process that support the selected call.
+
+## Firmware library exports
+
+These counts compare the Rust `sysPrxForUser` import IDs against the actual
+export tables in the locally examined `liblv2.sprx` binaries. They concern the
+optional `sdk-imports` feature.
+
+| Firmware | SDK 1.92 exports found | SDK 3.70 exports found |
+| --- | ---: | ---: |
+| DECR 1.10 | 49 / 58 | 49 / 62 |
+| DECR 2.60 | 58 / 58 | 60 / 62 |
+| DEX 4.81 | 58 / 58 | 62 / 62 |
+| DECR 4.81 | 58 / 58 | 62 / 62 |
+| CEX 4.93 | 58 / 58 | 62 / 62 |
+
+The DECR 2.60 sample lacks the 3.70 imports for `sys_get_random_number`
+and `sys_prx_load_module_on_memcontainer_by_fd`. On DECR 1.10, even some
+1.92 imports are absent, including the lightweight condition-variable
+functions and file descriptor based PRX loading.
+
+The archive audit covers public declarations with function symbols in the
+SDK's `liblv2_stub.a` and `liblv2dbg_stub.a`. A declaration may exist
+without a matching export. For example, `sys_prx_register_module` and
+`sys_spu_thread_elf_loader` appear in the 3.70 headers, but the checked
+PPU libraries do not provide public symbols with those names. The
+underscore-prefixed PRX registration trap in `libsyscall.a` has a
+different argument list.
