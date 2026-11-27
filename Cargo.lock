@@ -54,6 +54,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "lv2-smoke"
+version = "0.1.0"
+dependencies = [
+ "ps3",
+]
+
+[[package]]
 name = "memchr"
 version = "2.8.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"

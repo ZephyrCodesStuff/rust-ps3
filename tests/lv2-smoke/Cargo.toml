@@ -1,0 +1,13 @@
+[package]
+name = "lv2-smoke"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[features]
+default = ["sdk-370"]
+sdk-370 = ["ps3/sdk-370"]
+sdk-192 = ["ps3/sdk-192"]
+
+[dependencies]
+ps3 = { path = "../../ps3", default-features = false }

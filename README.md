@@ -129,6 +129,68 @@ You can run `EBOOT.ELF` directly in [RPCS3](https://rpcs3.net/).
 2. Alternatively, mount and run directly via `webMAN MOD` or `/app_home/PS3_GAME/`.
 3. Even more alternatively, use a Target Manager to upload the binary to your PS3 and run it.
 
+## LV2 syscall bindings
+
+`ps3::sys::raw` contains the direct LV2 calls defined inline by the official
+PPU SDK, with Rust types for their arguments and results. The target uses
+64-bit registers and Rust pointers. Embedded SDK pointers and `size_t`
+fields retain their 32-bit CellOS representation. Compile-time assertions
+check the sizes, alignments and field offsets of the ABI records.
+
+```rust,ignore
+use ps3::sys::error::Lv2Error;
+use ps3::sys::raw::{sys_memory_get_user_memory_size, SysMemoryInfo};
+
+let mut info = SysMemoryInfo::default();
+Lv2Error::check(unsafe { sys_memory_get_user_memory_size(&mut info) })?;
+let available = info.available_user_memory;
+```
+
+The default feature `sdk-370` selects the SDK 3.70 header ABI. To build
+against SDK 1.92, select its ABI when declaring the dependency:
+
+```toml
+ps3 = { version = "0.1", default-features = false, features = ["sdk-192"] }
+```
+
+| Call | SDK 3.70 | SDK 1.92 |
+| --- | ---: | ---: |
+| `sys_memory_container_create` | 324 | 341 |
+| `sys_memory_container_destroy` | 325 | 342 |
+| `sys_rwlock_trywlock` | 148 | 126 |
+
+Select one feature across the dependency graph. The selection is made at
+compile time. Check the running firmware and process permissions before
+using an entry point. Some firmware revisions expose the two memory
+container selector pairs under different permissions.
+
+Compatibility helpers for process exit, thread creation and PRX start and
+stop live under `ps3::sys`. Use SDK library imports for Cell APIs such as file
+I/O and sockets. The previous raw filesystem traps and generic selector
+interface have been removed.
+
+To compare the public direct bindings with local SDK headers, run:
+
+```sh
+python3 scripts/audit-lv2.py --public-sdk-headers INCLUDE_DIR --sdk-abi sdk-370
+```
+
+To build the smoke program with a PS3DEV GNU linker:
+
+```sh
+CARGO_ENCODED_RUSTFLAGS='' cargo -Z unstable-options -Z build-std=core,alloc \
+    -Z build-std-features=compiler-builtins-mem rustc --locked --release -p lv2-smoke -- \
+    -C "linker=$PS3DEV/ppu/bin/ppu-ld" -C link-arg=-T \
+    -C "link-arg=$PWD/tests/lv2-smoke/link.ld" -C link-arg=--no-opd-optimize \
+    -C link-arg=--no-toc-optimize -C link-arg=--no-multi-toc
+```
+
+To build the 1.92 variant, add `--no-default-features --features sdk-192`
+before the `--`. Boot `target/powerpc64-sony-ps3/release/lv2-smoke.ELF` in
+RPCS3. The program prints `LV2 ABI smoke passed` after checking process and
+time calls, memory allocation and containers, event queues, semaphores,
+read/write locks, and thread creation and join.
+
 ## SPRX Dynamic Imports (`sprx.toml`)
 
 `rust-ps3` allows defining Sony PRX module imports cleanly in `sprx.toml`. `moldier` parses this file, generates the appropriate assembly stubs, and binds them to the binary:

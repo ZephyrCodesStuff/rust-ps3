@@ -1,6 +1,7 @@
 //! Low-level PlayStation 3 Level 2 (LV2) Kernel bindings and types.
 
 pub mod entry;
+pub mod error;
 pub mod syscalls;
 pub mod types;
 
