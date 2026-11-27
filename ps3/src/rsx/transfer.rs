@@ -8,6 +8,27 @@ const MAX_ROW_BYTES: u32 = 0x3f_ffff;
 const MAX_ROWS: u32 = 0x7ff;
 const LINEAR_SURFACE: u32 = 0x3133_71c3;
 const SWIZZLED_SURFACE: u32 = 0x3133_7a73;
+const BLIT_BLOCK: u32 = 1024;
+
+/// Storage width of each pixel in an image copy.
+#[derive(Clone, Copy, Debug)]
+pub enum ImagePixelSize {
+    Bits16 = 2,
+    Bits32 = 4,
+    Bits64 = 8,
+    Bits128 = 16,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum ImageCopyTarget {
+    Linear(TransferMemory),
+    Swizzled {
+        location: Location,
+        offset: u32,
+        /// Power-of-two width and height in pixels.
+        extent: [u16; 2],
+    },
+}
 
 #[derive(Clone, Copy, Debug)]
 pub enum ScaleTarget {
@@ -97,6 +118,138 @@ impl TransferSurface {
 }
 
 impl Context {
+    /// Copies an unscaled rectangle from a pitched source image to a pitched
+    /// or swizzled destination. Linear targets support 16- and 32-bit pixels.
+    /// Swizzled targets also support 64- and 128-bit pixels.
+    ///
+    /// # Safety
+    /// The images must be live, nonoverlapping GPU allocations. Each 2D
+    /// blit may read up to the next even input width, with a minimum input
+    /// width of 16 elements of the selected 16- or 32-bit transfer format.
+    /// Keep this source padding accessible. Synchronize CPU and GPU access
+    /// to both allocations until the copy completes.
+    pub unsafe fn copy_image(
+        &mut self,
+        source: TransferMemory,
+        rect: Rect,
+        destination: ImageCopyTarget,
+        origin: [u16; 2],
+        pixel_size: ImagePixelSize,
+    ) -> Result<(), Error> {
+        if rect.width == 0 || rect.height == 0 {
+            return Ok(());
+        }
+        let pixel_bytes = pixel_size as u32;
+        let src_pitch = u16::try_from(source.pitch).map_err(|_| Error::InvalidArgument)?;
+        let width = u32::from(rect.width);
+        let height = u32::from(rect.height);
+        let [dst_x, dst_y] = origin.map(u32::from);
+        if (u32::from(rect.x) + width) * pixel_bytes > u32::from(src_pitch)
+            || source.offset % pixel_bytes.min(4) != 0
+        {
+            return Err(Error::InvalidArgument);
+        }
+        let src_offset = checked_offset(
+            source.offset,
+            u32::from(rect.x) * pixel_bytes,
+            u32::from(rect.y),
+            u32::from(src_pitch),
+        )?;
+        let source_region = TransferMemory {
+            offset: src_offset,
+            ..source
+        };
+        if !source_region.valid(width * pixel_bytes, height) {
+            return Err(Error::InvalidArgument);
+        }
+
+        let (target, dst_pitch) = match destination {
+            ImageCopyTarget::Linear(target) => {
+                let pitch = u16::try_from(target.pitch).map_err(|_| Error::InvalidArgument)?;
+                if pixel_bytes > 4
+                    || target.offset % 64 != 0
+                    || pitch % 64 != 0
+                    || (dst_x + width) * pixel_bytes > u32::from(pitch)
+                {
+                    return Err(Error::InvalidArgument);
+                }
+                checked_offset(
+                    target.offset,
+                    (dst_x + width) * pixel_bytes - 1,
+                    dst_y + height - 1,
+                    u32::from(pitch),
+                )?;
+                (target, pitch)
+            }
+            ImageCopyTarget::Swizzled {
+                location,
+                offset,
+                extent,
+            } => {
+                let [w, h] = extent.map(u32::from);
+                if !w.is_power_of_two()
+                    || !h.is_power_of_two()
+                    || w > 4096
+                    || h > 4096
+                    || dst_x + width > w
+                    || dst_y + height > h
+                {
+                    return Err(Error::InvalidArgument);
+                }
+                offset
+                    .checked_add(w * h * pixel_bytes - 1)
+                    .ok_or(Error::InvalidArgument)?;
+                let element_bytes = pixel_bytes.min(4);
+                let elements = pixel_bytes / element_bytes;
+                let copy = SwizzleCopy {
+                    source: source_region,
+                    destination: location,
+                    element_bytes,
+                    start: [dst_x * elements, dst_y],
+                    end: [(dst_x + width) * elements, dst_y + height],
+                };
+                return unsafe { copy.block(self, [0, 0], [w * elements, h], offset) };
+            }
+        };
+
+        let end_x = dst_x + width;
+        let end_y = dst_y + height;
+        let (scale_format, surface_format) = image_formats(pixel_bytes);
+        let mut y = dst_y;
+        while y < end_y {
+            let top = y & !(BLIT_BLOCK - 1);
+            let rows = end_y.min(top + BLIT_BLOCK) - y;
+            let mut x = dst_x;
+            while x < end_x {
+                let left = x & !(BLIT_BLOCK - 1);
+                let columns = end_x.min(left + BLIT_BLOCK) - x;
+                let surface = ScaleTarget::Linear(TransferSurface {
+                    format: surface_format.into(),
+                    pitch: dst_pitch,
+                    reserved: 0,
+                    offset: target.offset + top * u32::from(dst_pitch) + left * pixel_bytes,
+                });
+                let input = TransferMemory {
+                    offset: src_offset
+                        + (y - dst_y) * u32::from(src_pitch)
+                        + (x - dst_x) * pixel_bytes,
+                    ..source
+                };
+                let region = Rect {
+                    x: (x - left) as u16,
+                    y: (y - top) as u16,
+                    width: columns as u16,
+                    height: rows as u16,
+                };
+                let scale = image_scale(input, region, scale_format);
+                unsafe { self.scale_image(source.location, target.location, &scale, surface)? };
+                x += columns;
+            }
+            y += rows;
+        }
+        Ok(())
+    }
+
     /// Uploads native-endian words from the FIFO to GPU-visible memory.
     ///
     /// # Safety
@@ -304,6 +457,136 @@ impl Context {
                     xy(scale.input_x, scale.input_y),
                 ],
             ])
+        }
+    }
+}
+
+fn checked_offset(base: u32, x_bytes: u32, y: u32, pitch: u32) -> Result<u32, Error> {
+    u32::try_from(u64::from(base) + u64::from(x_bytes) + u64::from(y) * u64::from(pitch))
+        .map_err(|_| Error::InvalidArgument)
+}
+
+fn image_formats(element_bytes: u32) -> (u32, u16) {
+    if element_bytes == 2 {
+        (7, 4)
+    } else {
+        (3, 10)
+    }
+}
+
+fn image_scale(source: TransferMemory, region: Rect, format: u32) -> TransferScale {
+    TransferScale {
+        conversion: 1,
+        format,
+        operation: 3,
+        clip_x: region.x as i16,
+        clip_y: region.y as i16,
+        clip_width: region.width,
+        clip_height: region.height,
+        output_x: region.x as i16,
+        output_y: region.y as i16,
+        output_width: region.width,
+        output_height: region.height,
+        ratio_x: 1 << 20,
+        ratio_y: 1 << 20,
+        input_width: region.width.max(16).next_multiple_of(2),
+        input_height: region.height,
+        pitch: source.pitch as u16,
+        origin: 2,
+        interpolation: 0,
+        offset: source.offset,
+        input_x: 0,
+        input_y: 0,
+    }
+}
+
+struct SwizzleCopy {
+    source: TransferMemory,
+    destination: Location,
+    element_bytes: u32,
+    start: [u32; 2],
+    end: [u32; 2],
+}
+
+impl SwizzleCopy {
+    unsafe fn block(
+        &self,
+        context: &mut Context,
+        [x, y]: [u32; 2],
+        [w, h]: [u32; 2],
+        offset: u32,
+    ) -> Result<(), Error> {
+        let left = x.max(self.start[0]);
+        let top = y.max(self.start[1]);
+        let right = (x + w).min(self.end[0]);
+        let bottom = (y + h).min(self.end[1]);
+        if left >= right || top >= bottom {
+            return Ok(());
+        }
+        let input = TransferMemory {
+            offset: self.source.offset
+                + (top - self.start[1]) * self.source.pitch as u32
+                + (left - self.start[0]) * self.element_bytes,
+            ..self.source
+        };
+        if w <= 2 || h == 1 {
+            // In these dimensions the low Morton bits lay out as pitched rows.
+            let output = TransferMemory {
+                location: self.destination,
+                offset: offset + ((top - y) * w + (left - x)) * self.element_bytes,
+                pitch: (w * self.element_bytes) as i32,
+            };
+            return unsafe {
+                context.copy_rows(
+                    input,
+                    output,
+                    (right - left) * self.element_bytes,
+                    bottom - top,
+                )
+            };
+        }
+
+        if left == x
+            && top == y
+            && right == x + w
+            && bottom == y + h
+            && w <= BLIT_BLOCK
+            && h <= BLIT_BLOCK
+            && offset % 64 == 0
+        {
+            let (scale_format, surface_format) = image_formats(self.element_bytes);
+            let target = ScaleTarget::Swizzled(TransferSwizzle {
+                format: surface_format,
+                width: w.ilog2() as u8,
+                height: h.ilog2() as u8,
+                offset,
+            });
+            let scale = image_scale(
+                input,
+                Rect {
+                    x: 0,
+                    y: 0,
+                    width: w as u16,
+                    height: h as u16,
+                },
+                scale_format,
+            );
+            return unsafe {
+                context.scale_image(input.location, self.destination, &scale, target)
+            };
+        }
+
+        // Remove the highest Morton bit. Equal dimensions interleave Y above
+        // X. Both halves occupy contiguous, equal-sized address ranges.
+        let second_offset = offset + w * h / 2 * self.element_bytes;
+        let (half, second) = if h >= w {
+            ([w, h / 2], [x, y + h / 2])
+        } else {
+            ([w / 2, h], [x + w / 2, y])
+        };
+        unsafe {
+            self.block(context, [x, y], half, offset)?;
+            self.block(context, second, half, second_offset)
         }
     }
 }

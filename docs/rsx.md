@@ -19,6 +19,9 @@ function descriptors.
   formats, and inline 16-bit and 32-bit index draws.
 - DMA commands support pitched copies, inline word transfers, scaling,
   and swizzled destinations.
+  `Context::copy_image` copies a rectangle into a pitched surface or a
+  power-of-two Morton-order texture. It supports 16- and 32-bit linear
+  pixels and 16-, 32-, 64-, and 128-bit swizzled pixels.
   Labels, FIFO references, GCM events, and reports expose synchronization
   and feedback from the hardware.
 - `shader` reads PSL1GHT output and big-endian Cell SDK Cg revision 6.
@@ -79,5 +82,7 @@ The Cg reader was tested with vertex and fragment binaries shipped
 with SDK 4.75, including a fragment parameter with five embedded
 locations. GTF decoding was checked with single-texture and
 multi-texture SDK samples. The Cg and CGB vertex upload paths were
-exercised in RPCS3. Physical console tests and one-for-one typed
+exercised in RPCS3, along with pitched subrectangle copies, a swizzled
+copy crossing a 1024-pixel boundary, 128-bit pixels, and narrow mip
+levels. Physical console tests and one-for-one typed
 wrappers for the remaining GCM command helpers are still open.

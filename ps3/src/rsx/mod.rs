@@ -38,5 +38,5 @@ pub use texture::{MagFilter, MinFilter, Sampler, WrapMode};
 pub use tiled::{
     Antialias, DepthFormat, Tile, TileCompression, ZCull, ZCullDirection, ZCullFormat,
 };
-pub use transfer::{ScaleTarget, TransferMemory};
+pub use transfer::{ImageCopyTarget, ImagePixelSize, ScaleTarget, TransferMemory};
 pub use types::*;

@@ -13,7 +13,7 @@ use ps3::rsx::{
     TransferMemory, TransferScale, TransferSurface, VertexAttribute, VertexType, Viewport,
 };
 #[cfg(feature = "verify-framebuffer")]
-use ps3::rsx::{Event, EventCallback, ImmediateVertex};
+use ps3::rsx::{Event, EventCallback, ImageCopyTarget, ImagePixelSize, ImmediateVertex};
 use ps3::sys::sys_timer_usleep;
 
 const MIB: usize = 1024 * 1024;
@@ -104,7 +104,7 @@ fn run() -> Result<(), Error> {
     let texels = vram.allocate(TEX_PITCH * 4, 128)?;
     let scaled = vram.allocate(TEX_PITCH * 8, 128)?;
     #[cfg(feature = "verify-framebuffer")]
-    let swizzled = vram.allocate(8 * 8 * 4, 128)?;
+    let mut swizzled = vram.allocate(8 * 8 * 4, 128)?;
     if context.address_to_offset(back.storage().address())? != first_offset {
         return Err(Error::InvalidContext);
     }
@@ -180,6 +180,28 @@ fn run() -> Result<(), Error> {
             context.finish(0x1234_5674, 30_000)?;
             assert_eq!(swizzled.read_word(0)?, TEXEL);
             assert_eq!(swizzled.read_word(swizzled.size() - 4)?, TEXEL);
+            // Neighboring texels (1, 1) and (2, 1) occupy Morton indices 3 and 6.
+            swizzled.write(3 * 4, &COLOR.to_be_bytes())?;
+            swizzled.write(6 * 4, &COLOR.to_be_bytes())?;
+            context.copy_image(
+                region(&texels),
+                Rect {
+                    x: 1,
+                    y: 1,
+                    width: 1,
+                    height: 1,
+                },
+                ImageCopyTarget::Swizzled {
+                    location: swizzled.location(),
+                    offset: swizzled.offset(),
+                    extent: [8, 8],
+                },
+                [1, 1],
+                ImagePixelSize::Bits32,
+            )?;
+            context.finish(0x1234_5671, 30_000)?;
+            assert_eq!(swizzled.read_word(3 * 4)?, TEXEL);
+            assert_eq!(swizzled.read_word(6 * 4)?, COLOR);
         }
 
         context.set_surface(&surface)?;
