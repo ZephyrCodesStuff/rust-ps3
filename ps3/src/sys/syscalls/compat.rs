@@ -115,9 +115,9 @@ unsafe fn run_prx_callback(
         }
 
         let result = if option.entry2 != u64::MAX {
-            call_prx_entry(option.entry2, option.entry, u64::from(args), argp)
+            call_compact(option.entry2, option.entry, u64::from(args), argp)
         } else if option.entry != u64::MAX {
-            call_prx_entry(option.entry, u64::from(args), argp, 0)
+            call_compact(option.entry, u64::from(args), argp, 0)
         } else {
             0
         };
@@ -134,7 +134,7 @@ unsafe fn run_prx_callback(
 
 /// Calls an LV2 compact descriptor while keeping the caller's TOC outside
 /// the callback's linkage and parameter save areas and the Rust red zone.
-unsafe fn call_prx_entry(address: u64, a0: u64, a1: u64, a2: u64) -> i32 {
+pub(crate) unsafe fn call_compact(address: u64, a0: u64, a1: u64, a2: u64) -> i32 {
     let result: i64;
     unsafe {
         core::arch::asm!(

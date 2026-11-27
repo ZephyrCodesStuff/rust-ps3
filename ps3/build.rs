@@ -56,6 +56,8 @@ struct FunctionConfig {
     fnid: u32,
     #[serde(default)]
     since_sdk: u16,
+    #[serde(default)]
+    stack_words: u8,
 }
 
 fn generate_sprx_assembly(config: &SprxConfig) -> String {
@@ -164,13 +166,19 @@ fn generate_sprx_assembly(config: &SprxConfig) -> String {
     // 5. Trampolines (.sceStub.text)
     out.push_str(".section \".sceStub.text\",\"ax\"\n.align 2\n\n");
     out.push_str(
-        ".macro DEFINE_STUB name\n\
+        ".macro DEFINE_STUB name, frame, stack_words\n\
 .align 2\n\
 .Lcode_\\name:\n\
     mflr    0\n\
     std     0, 16(1)\n\
     std     2, 40(1)\n\
-    stdu    1, -128(1)\n\
+    stdu    1, -\\frame(1)\n\
+    .set .Lslot\\@, 112\n\
+    .rept \\stack_words\n\
+    ld      0, \\frame+.Lslot\\@(1)\n\
+    std     0, .Lslot\\@(1)\n\
+    .set .Lslot\\@, .Lslot\\@+8\n\
+    .endr\n\
     addis   12, 2, \\name\\()_stub@toc@ha\n\
     addi    12, 12, \\name\\()_stub@toc@l\n\
     lwz     12, 0(12)\n\
@@ -178,7 +186,7 @@ fn generate_sprx_assembly(config: &SprxConfig) -> String {
     lwz     2, 4(12)\n\
     mtctr   0\n\
     bctrl\n\
-    addi    1, 1, 128\n\
+    addi    1, 1, \\frame\n\
     ld      2, 40(1)\n\
     ld      0, 16(1)\n\
     mtlr    0\n\
@@ -197,7 +205,14 @@ fn generate_sprx_assembly(config: &SprxConfig) -> String {
     for (lib_name, lib) in &config.libraries {
         out.push_str(&format!("# {} stubs\n", lib_name));
         for func in &lib.functions {
-            out.push_str(&format!("DEFINE_STUB {}\n", func.name));
+            // ELFv1 passes arguments after r10 in eight-byte stack slots.
+            let frame = (112 + usize::from(func.stack_words) * 8)
+                .max(128)
+                .next_multiple_of(16);
+            out.push_str(&format!(
+                "DEFINE_STUB {}, {frame}, {}\n",
+                func.name, func.stack_words
+            ));
         }
         out.push('\n');
     }
@@ -228,7 +243,9 @@ fn main() {
         SprxConfig::default()
     };
 
-    if env::var_os("CARGO_FEATURE_SDK_IMPORTS").is_some() {
+    if env::var_os("CARGO_FEATURE_SDK_IMPORTS").is_some()
+        || env::var_os("CARGO_FEATURE_RSX").is_some()
+    {
         let sdk_config: SprxConfig =
             toml::from_str(include_str!("sdk-imports.toml")).expect("invalid built-in SDK imports");
         let sdk = [
@@ -267,7 +284,7 @@ fn main() {
             for function in library.functions {
                 if let Some(existing) = configured
                     .functions
-                    .iter()
+                    .iter_mut()
                     .find(|f| f.name == function.name)
                 {
                     assert_eq!(
@@ -275,6 +292,7 @@ fn main() {
                         "conflicting SDK import {}",
                         function.name
                     );
+                    existing.stack_words = function.stack_words;
                 } else {
                     configured.functions.push(function);
                 }

@@ -29,6 +29,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "example-rsx-clear"
+version = "0.1.0"
+dependencies = [
+ "ps3",
+]
+
+[[package]]
 name = "hashbrown"
 version = "0.17.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"

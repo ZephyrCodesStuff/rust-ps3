@@ -107,6 +107,8 @@ macro_rules! define_syscall_actions {
 }
 
 mod compat;
+#[cfg(feature = "rsx")]
+pub(crate) use compat::call_compact;
 mod mmapper;
 pub mod portable;
 pub mod raw;

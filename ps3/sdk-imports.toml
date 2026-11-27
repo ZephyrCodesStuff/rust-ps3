@@ -1,5 +1,6 @@
 [libraries.sysPrxForUser]
 module_id = 0x0009
+requires_feature = "sdk-imports"
 functions = [
     { name = "sys_mempool_allocate_block", fnid = 0xa146a143 },
     { name = "sys_mempool_create", fnid = 0xca9a60bf },
@@ -112,4 +113,94 @@ requires_feature = "sdk-crashdump"
 functions = [
     { name = "sys_crash_dump_get_user_log_area", fnid = 0x52696620 },
     { name = "sys_crash_dump_set_user_log_area", fnid = 0xb20f87b3 },
+]
+
+[libraries.cellGcmSys]
+module_id = 0x0009
+requires_feature = "rsx"
+functions = [
+    { name = "_cellGcmInitBody", fnid = 0x15bae46b },
+    { name = "_cellGcmSetFlipCommand", fnid = 0x21397818 },
+    { name = "_cellGcmSetFlipCommandWithWaitLabel", fnid = 0xd8f88e1a },
+    { name = "cellGcmAddressToOffset", fnid = 0x21ac3697 },
+    { name = "cellGcmBindTile", fnid = 0x4524cccd },
+    { name = "cellGcmBindZcull", fnid = 0x9dc04436, stack_words = 4 },
+    { name = "cellGcmDumpGraphicsError", fnid = 0x1f61b3ff },
+    { name = "cellGcmGetConfiguration", fnid = 0xe315a0b2 },
+    { name = "cellGcmGetControlRegister", fnid = 0xa547adde },
+    { name = "cellGcmGetCurrentDisplayBufferId", fnid = 0x93806525 },
+    { name = "cellGcmGetCurrentField", fnid = 0xc8f3bd09 },
+    { name = "cellGcmGetDefaultCommandWordSize", fnid = 0x5e2ee0f0 },
+    { name = "cellGcmGetDefaultSegmentWordSize", fnid = 0x8cdf8c70 },
+    { name = "cellGcmGetDisplayBufferByFlipIndex", fnid = 0x371674cf },
+    { name = "cellGcmGetDisplayInfo", fnid = 0x0e6b0dae },
+    { name = "cellGcmGetFlipStatus", fnid = 0x72a577ce },
+    { name = "cellGcmGetLabelAddress", fnid = 0xf80196c1 },
+    { name = "cellGcmGetLastFlipTime", fnid = 0x63387071 },
+    { name = "cellGcmGetLastSecondVTime", fnid = 0x23ae55a3 },
+    { name = "cellGcmGetMaxIoMapSize", fnid = 0xfb81c03e },
+    { name = "cellGcmGetNotifyDataAddress", fnid = 0x21cee035 },
+    { name = "cellGcmGetOffsetTable", fnid = 0x2922aed0 },
+    { name = "cellGcmGetReport", fnid = 0x99d397ac },
+    { name = "cellGcmGetReportDataAddress", fnid = 0x9a0159af },
+    { name = "cellGcmGetReportDataAddressLocation", fnid = 0x8572bce2 },
+    { name = "cellGcmGetReportDataLocation", fnid = 0xa6b180ac },
+    { name = "cellGcmGetTileInfo", fnid = 0x657571f7 },
+    { name = "cellGcmGetTiledPitchSize", fnid = 0x055bd74d },
+    { name = "cellGcmGetTimeStamp", fnid = 0x5a41c10f },
+    { name = "cellGcmGetTimeStampLocation", fnid = 0x2ad4951b },
+    { name = "cellGcmGetVBlankCount", fnid = 0x723bbc7e },
+    { name = "cellGcmGetZcullInfo", fnid = 0xd9a0a879 },
+    { name = "cellGcmInitCursor", fnid = 0x107bf3a1 },
+    { name = "cellGcmInitDefaultFifoMode", fnid = 0xcaabd992 },
+    { name = "cellGcmInitSystemMode", fnid = 0xfce9e764 },
+    { name = "cellGcmIoOffsetToAddress", fnid = 0x2a6fba9c },
+    { name = "cellGcmMapEaIoAddress", fnid = 0x63441cb4 },
+    { name = "cellGcmMapEaIoAddressWithFlags", fnid = 0x626e8518 },
+    { name = "cellGcmMapLocalMemory", fnid = 0xdb769b32 },
+    { name = "cellGcmMapMainMemory", fnid = 0xa114ec67 },
+    { name = "cellGcmReserveIoMapSize", fnid = 0xa7ede268 },
+    { name = "cellGcmResetFlipStatus", fnid = 0xb2e761d4 },
+    { name = "cellGcmSetCursorDisable", fnid = 0x69c6cc82 },
+    { name = "cellGcmSetCursorEnable", fnid = 0xc47d0812 },
+    { name = "cellGcmSetCursorImageOffset", fnid = 0xf9bfdc72 },
+    { name = "cellGcmSetCursorPosition", fnid = 0x1a0de550 },
+    { name = "cellGcmSetDebugOutputLevel", fnid = 0x51c9d62b },
+    { name = "cellGcmSetDefaultCommandBuffer", fnid = 0xbc982946 },
+    { name = "cellGcmSetDefaultCommandBufferAndSegmentWordSize", fnid = 0x172c3197 },
+    { name = "cellGcmSetDefaultFifoSize", fnid = 0x9ba451e4 },
+    { name = "cellGcmSetDisplayBuffer", fnid = 0xa53d12ae },
+    { name = "cellGcmSetFlipHandler", fnid = 0xa41ef7e8 },
+    { name = "cellGcmSetFlipImmediate", fnid = 0xacee8542 },
+    { name = "cellGcmSetFlipMode", fnid = 0x4ae8d215 },
+    { name = "cellGcmSetFlipStatus", fnid = 0xa47c09ff },
+    { name = "cellGcmSetGraphicsHandler", fnid = 0xd01b570d },
+    { name = "cellGcmSetInvalidateTile", fnid = 0xbd6d60d9 },
+    { name = "cellGcmSetPrepareFlip", fnid = 0x0b4b62d5 },
+    { name = "cellGcmSetQueueHandler", fnid = 0x0a862772 },
+    { name = "cellGcmSetSecondVFrequency", fnid = 0x4d7ce993 },
+    { name = "cellGcmSetSecondVHandler", fnid = 0xdc494430 },
+    { name = "cellGcmSetTile", fnid = 0xd0b1d189 },
+    { name = "cellGcmSetTileInfo", fnid = 0xbd100dbc },
+    { name = "cellGcmSetUserHandler", fnid = 0x06edea9e },
+    { name = "cellGcmSetVBlankFrequency", fnid = 0xffe0160e },
+    { name = "cellGcmSetVBlankHandler", fnid = 0xa91b0402 },
+    { name = "cellGcmSetZcull", fnid = 0xd34a420d, stack_words = 4 },
+    { name = "cellGcmSortRemapEaIoAddress", fnid = 0x25b40ab4 },
+    { name = "cellGcmUnbindTile", fnid = 0xd9b7653e },
+    { name = "cellGcmUnbindZcull", fnid = 0xa75640e8 },
+    { name = "cellGcmUnmapEaIoAddress", fnid = 0xefd00f54 },
+    { name = "cellGcmUnmapIoAddress", fnid = 0xdb23e867 },
+    { name = "cellGcmUnreserveIoMapSize", fnid = 0x3b9bd5bd },
+    { name = "cellGcmUpdateCursor", fnid = 0xbd2fa0a7 },
+]
+
+[libraries.cellSysutil]
+module_id = 0x0009
+requires_feature = "rsx"
+functions = [
+    { name = "cellVideoOutConfigure", fnid = 0x0bae8772 },
+    { name = "cellVideoOutGetResolution", fnid = 0xe558748d },
+    { name = "cellVideoOutGetResolutionAvailability", fnid = 0xa322db75 },
+    { name = "cellVideoOutGetState", fnid = 0x887572d5 },
 ]

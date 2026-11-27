@@ -56,6 +56,7 @@ See `examples/` directory for sample programs (`examples/hello-world` and `examp
 - [x] Direct compilation via Rust `json-target-spec` without legacy cross-compiler toolchains
 - [ ] SPU (Synergistic Processing Unit) toolchain & inter-processor communication (MFC DMA / mailboxes)
 - [ ] RSX / libgcm 3D graphics hardware acceleration
+  - [x] GCM firmware imports, video output, and a framebuffer clear and flip
 - [ ] `std` support
 - [ ] Automated self / `EBOOT.BIN` packaging
 
@@ -128,6 +129,17 @@ You can run `EBOOT.ELF` directly in [RPCS3](https://rpcs3.net/).
    ```
 2. Alternatively, mount and run directly via `webMAN MOD` or `/app_home/PS3_GAME/`.
 3. Even more alternatively, use a Target Manager to upload the binary to your PS3 and run it.
+
+## RSX graphics
+
+Enable the `rsx` feature for `ps3::rsx`. It provides GCM firmware imports,
+PPU-layout graphics records, a command FIFO, and video output configuration.
+Use `moldier patch` to prepare the executable's imports before running it.
+
+The `rsx-clear` example maps a 1 MiB-aligned I/O buffer, sets up a local
+framebuffer, clears it to blue, and waits for a display flip. Build it with
+`./scripts/build.sh rsx-clear`. The example shows the memory ownership and
+synchronization needed to submit commands safely.
 
 ## LV2 syscall bindings
 

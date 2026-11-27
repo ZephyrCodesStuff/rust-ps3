@@ -16,6 +16,7 @@ sdk-192 = []
 sdk-imports = []
 sdk-debug = ["sdk-imports"]
 sdk-crashdump = ["sdk-imports"]
+rsx = []
 
 [dependencies]
 ps3-macros = { path = "../ps3-macros" }
