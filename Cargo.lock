@@ -29,7 +29,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "example-rsx-clear"
+name = "example-rsx-triangle"
 version = "0.1.0"
 dependencies = [
  "ps3",

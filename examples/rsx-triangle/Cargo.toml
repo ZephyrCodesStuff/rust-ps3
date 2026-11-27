@@ -1,5 +1,5 @@
 [package]
-name = "example-rsx-clear"
+name = "example-rsx-triangle"
 version = "0.1.0"
 edition = "2021"
 publish = false
@@ -10,3 +10,6 @@ path = "src/main.rs"
 
 [dependencies]
 ps3 = { path = "../../ps3", features = ["rsx"] }
+
+[features]
+verify-framebuffer = []

@@ -1,0 +1,3 @@
+!!FP2.0
+MOVR o[COLR], f[COL0];
+END

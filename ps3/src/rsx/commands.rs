@@ -13,7 +13,7 @@ const DEPTH_CLEAR: u16 = 0x1d8c;
 const CLEAR: u16 = 0x1d94;
 const DMA_LOCAL: u32 = 0xfeed_0000;
 
-const fn packet(address: u16, count: usize) -> u32 {
+pub(super) const fn packet(address: u16, count: usize) -> u32 {
     // All named methods below are aligned constants.
     Method::new(address).unwrap().header(count, true)
 }
