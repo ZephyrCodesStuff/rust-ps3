@@ -496,6 +496,23 @@ unsafe fn sdk_imports() {
     prx();
     #[cfg(feature = "sdk-debug")]
     debug_query(thread_id);
+    #[cfg(feature = "sdk-crashdump")]
+    crashdump_query();
+}
+
+#[cfg(feature = "sdk-crashdump")]
+unsafe fn crashdump_query() {
+    use ps3::sys::sdk::crashdump::*;
+
+    let mut entry = SysCrashDumpLogAreaInfo::default();
+    check(
+        sys_crash_dump_get_user_log_area(u8::MAX, &mut entry) != 0,
+        "SDK crash dump get invalid index",
+    );
+    check(
+        sys_crash_dump_set_user_log_area(u8::MAX, &mut entry) != 0,
+        "SDK crash dump set invalid index",
+    );
 }
 
 #[cfg(feature = "sdk-imports")]
@@ -536,6 +553,17 @@ unsafe fn prx() {
         sys_prx_get_module_id_by_address(segments[0].base as usize as *mut _) == id,
         "SDK PRX lookup by address",
     );
+    #[cfg(feature = "sdk-370")]
+    {
+        let mut extended = SysPrxModuleInfoV2::default();
+        check(
+            sys_prx_get_module_info_v2(id, 0, &mut extended) == 0
+                && extended.module.name == info.name
+                && extended.exports_addr != 0
+                && extended.exports_size != 0,
+            "SDK PRX extended info",
+        );
+    }
 
     let mut result = i32::MIN;
     check(
@@ -549,7 +577,7 @@ unsafe fn prx() {
         "SDK PRX stop",
     );
     check(sys_prx_unload_module(id, 0, null()) == 0, "SDK PRX unload");
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     check(sys::sys_prx_get_ppu_guid(id) == 0, "SDK unloaded PRX GUID");
 }
 

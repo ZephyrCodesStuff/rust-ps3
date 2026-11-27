@@ -7,11 +7,32 @@ more than one selector for an operation.
 
 ## Reference material
 
-The [PS3 Developer Wiki SDK index](https://www.psdevwiki.com/ps3/SCEI_PS3_SDK)
-lists SDK releases before and after 1.92 and 3.70, including 4.75. Those two
-Rust feature names refer to the SDK packages compared directly with this
-implementation. The wiki's [LV2 selector table](https://www.psdevwiki.com/ps3/LV2_Functions_and_Syscalls)
-is a reference for identifying selectors and permission classes.
+The public PPU headers and stub libraries from these SDK releases were
+compared directly with the Rust bindings. The audit compares the normalized
+parameter and return types, plus the direct selectors and firmware import
+IDs. Separate C layout checks cover the PRX, memory pool, lightweight
+synchronization, and debug records.
+
+| SDK | Rust profile | Inline calls | `sysPrxForUser` imports | `sys_lv2dbg` imports |
+| --- | --- | ---: | ---: | ---: |
+| 1.92 | `sdk-192` | 137 | 58 | 21 |
+| 2.70 | `sdk-270` | 162 | 60 | 34 |
+| 3.70 | `sdk-370` | 165 | 62 | 35 |
+| 4.60 | `sdk-370` | 165 | 62 | 35 |
+| 4.75 | `sdk-370` | 165 | 62 | 35 |
+
+SDK 2.70 uses selector 126 for the RW lock try-write operation and 324/325
+for memory containers. It has the same signatures as 3.70 for the functions
+they share. SDKs 4.60 and 4.75 provide a larger PRX module information record
+whose size selects the extended result through the existing firmware import.
+
+SDK 4.75 also provides both public log area functions in
+`libcrashdump_stub.a`. The Rust `sdk-crashdump` feature exposes those
+functions and their 24-byte log area record.
+
+The PS3 Developer Wiki indexes further SDK releases and documents LV2
+selectors and permission classes. [SDK index](https://www.psdevwiki.com/ps3/SCEI_PS3_SDK),
+[LV2 selector table](https://www.psdevwiki.com/ps3/LV2_Functions_and_Syscalls)
 
 PSL1GHT is a separate, useful reference for homebrew behavior. These snapshots
 use the same IDs for the eight inline memory operations in `sys/memory.h`,
@@ -49,12 +70,13 @@ has both pairs of memory container selectors. The 324/325 pair has a debug
 application flag requirement, as documented in the [LV2 selector table](https://www.psdevwiki.com/ps3/LV2_Functions_and_Syscalls).
 A broad firmware version check alone would miss these differences.
 
-RPCS3 smoke tests exercise both Cargo profiles on the same emulator setup.
-The firmware table comparison is a separate static check. Debug thread
+RPCS3 smoke tests exercise all three Cargo profiles on the same emulator
+setup, including the extended PRX query under `sdk-370`. The firmware table
+comparison is a separate static check. Debug thread
 status currently reaches an RPCS3 implementation that does not fill the
 result, so the test exercises the import without validating the returned
-status.
-
+status. RPCS3 also resolves both crash dump imports and rejects an invalid
+log area index. Dump file generation remains unverified.
 
 ## Selecting the older supported calls
 
@@ -74,23 +96,39 @@ These counts compare the Rust `sysPrxForUser` import IDs against the actual
 export tables in the locally examined `liblv2.sprx` binaries. They concern the
 optional `sdk-imports` feature.
 
-| Firmware | SDK 1.92 exports found | SDK 3.70 exports found |
-| --- | ---: | ---: |
-| DECR 1.10 | 49 / 58 | 49 / 62 |
-| DECR 2.60 | 58 / 58 | 60 / 62 |
-| DEX 4.81 | 58 / 58 | 62 / 62 |
-| DECR 4.81 | 58 / 58 | 62 / 62 |
-| CEX 4.93 | 58 / 58 | 62 / 62 |
+| Firmware | SDK 1.92 exports found | SDK 2.70 exports found | SDK 3.70 exports found |
+| --- | ---: | ---: | ---: |
+| DECR 1.10 | 49 / 58 | 49 / 60 | 49 / 62 |
+| DECR 2.60 | 58 / 58 | 60 / 60 | 60 / 62 |
+| DEX 4.81 | 58 / 58 | 60 / 60 | 62 / 62 |
+| DECR 4.81 | 58 / 58 | 60 / 60 | 62 / 62 |
+| CEX 4.93 | 58 / 58 | 60 / 60 | 62 / 62 |
 
 The DECR 2.60 sample lacks the 3.70 imports for `sys_get_random_number`
 and `sys_prx_load_module_on_memcontainer_by_fd`. On DECR 1.10, even some
 1.92 imports are absent, including the lightweight condition-variable
 functions and file descriptor based PRX loading.
 
+The same comparison for the optional `sys_lv2dbg` imports uses
+`liblv2dbg_for_dex.sprx` on the test and development firmware and
+`liblv2dbg_for_cex.sprx` on retail firmware. A matching export establishes
+linkage availability. Debug permissions and returned data depend on the
+process and firmware.
+
+| Firmware | SDK 1.92 debug exports found | SDK 2.70 debug exports found | SDK 3.70 debug exports found |
+| --- | ---: | ---: | ---: |
+| DECR 1.10 | 6 / 21 | 6 / 34 | 6 / 35 |
+| DECR 2.60 | 21 / 21 | 32 / 34 | 32 / 35 |
+| DEX 4.81 | 21 / 21 | 34 / 34 | 35 / 35 |
+| DECR 4.81 | 21 / 21 | 34 / 34 | 35 / 35 |
+| CEX 4.93 | 21 / 21 | 34 / 34 | 35 / 35 |
+
+Both `sys_crashdump` NIDs are present in `liblv2coredump.sprx` on
+DEX 4.81, DECR 4.81, and CEX 4.93.
+
 The archive audit covers public declarations with function symbols in the
-SDK's `liblv2_stub.a` and `liblv2dbg_stub.a`. A declaration may exist
-without a matching export. For example, `sys_prx_register_module` and
-`sys_spu_thread_elf_loader` appear in the 3.70 headers, but the checked
-PPU libraries do not provide public symbols with those names. The
-underscore-prefixed PRX registration trap in `libsyscall.a` has a
-different argument list.
+SDK's `liblv2_stub.a`, `liblv2dbg_stub.a`, and `libcrashdump_stub.a`.
+`sys_prx_register_module` and `sys_spu_thread_elf_loader` are declared in
+the 3.70 and 4.75 headers. A symbol scan of the PPU libraries found only
+the underscore-prefixed PRX registration trap in `libsyscall.a`, which
+has a different argument list.

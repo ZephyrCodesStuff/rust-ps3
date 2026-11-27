@@ -17,7 +17,7 @@ functions = [
     { name = "console_write", fnid = 0xf57e1d6f },
     { name = "sys_game_process_exitspawn", fnid = 0xfc52a7a9 },
     { name = "sys_game_process_exitspawn2", fnid = 0x67f9fedb },
-    { name = "sys_get_random_number", fnid = 0x71a8472a, sdk_370_only = true },
+    { name = "sys_get_random_number", fnid = 0x71a8472a, since_sdk = 370 },
     { name = "sys_process_exit", fnid = 0xe6f2c1e7 },
     { name = "sys_process_is_stack", fnid = 0x4f7172c9 },
     { name = "sys_time_get_system_time", fnid = 0x8461e528 },
@@ -28,10 +28,10 @@ functions = [
     { name = "sys_prx_get_my_module_id", fnid = 0x74311398 },
     { name = "sys_prx_load_module", fnid = 0x26090058 },
     { name = "sys_prx_load_module_by_fd", fnid = 0xef68c17c },
-    { name = "sys_prx_load_module_list", fnid = 0xb27c8ae7, sdk_370_only = true },
-    { name = "sys_prx_load_module_list_on_memcontainer", fnid = 0xe7ef3a80, sdk_370_only = true },
+    { name = "sys_prx_load_module_list", fnid = 0xb27c8ae7, since_sdk = 270 },
+    { name = "sys_prx_load_module_list_on_memcontainer", fnid = 0xe7ef3a80, since_sdk = 270 },
     { name = "sys_prx_load_module_on_memcontainer", fnid = 0xaa6d9bff },
-    { name = "sys_prx_load_module_on_memcontainer_by_fd", fnid = 0xa330ad84, sdk_370_only = true },
+    { name = "sys_prx_load_module_on_memcontainer_by_fd", fnid = 0xa330ad84, since_sdk = 370 },
     { name = "sys_prx_register_library", fnid = 0x42b23552 },
     { name = "sys_prx_start_module", fnid = 0x9f18429d },
     { name = "sys_prx_stop_module", fnid = 0x80fb0c19 },
@@ -67,17 +67,17 @@ functions = [
 
 [libraries.sys_lv2dbg]
 module_id = 0x0009
-sdk_debug_only = true
+requires_feature = "sdk-debug"
 functions = [
-    { name = "sys_dbg_disable_floating_point_enabled_exception", fnid = 0xf254768c, sdk_370_only = true },
-    { name = "sys_dbg_enable_floating_point_enabled_exception", fnid = 0x3147c6ca, sdk_370_only = true },
+    { name = "sys_dbg_disable_floating_point_enabled_exception", fnid = 0xf254768c, since_sdk = 270 },
+    { name = "sys_dbg_enable_floating_point_enabled_exception", fnid = 0x3147c6ca, since_sdk = 270 },
     { name = "sys_dbg_finalize_ppu_exception_handler", fnid = 0xc0eb9266 },
-    { name = "sys_dbg_get_address_from_dabr", fnid = 0xbb0ae221, sdk_370_only = true },
+    { name = "sys_dbg_get_address_from_dabr", fnid = 0xbb0ae221, since_sdk = 270 },
     { name = "sys_dbg_get_cond_information", fnid = 0x63bd413e },
-    { name = "sys_dbg_get_coredump_params", fnid = 0xb9da87d3, sdk_370_only = true },
-    { name = "sys_dbg_get_event_flag_information", fnid = 0xdf856979, sdk_370_only = true },
+    { name = "sys_dbg_get_coredump_params", fnid = 0xb9da87d3, since_sdk = 270 },
+    { name = "sys_dbg_get_event_flag_information", fnid = 0xdf856979, since_sdk = 270 },
     { name = "sys_dbg_get_event_queue_information", fnid = 0x381ae33e },
-    { name = "sys_dbg_get_lwcond_information", fnid = 0x7bdadb01, sdk_370_only = true },
+    { name = "sys_dbg_get_lwcond_information", fnid = 0x7bdadb01, since_sdk = 270 },
     { name = "sys_dbg_get_lwmutex_information", fnid = 0xcb377e36 },
     { name = "sys_dbg_get_mutex_information", fnid = 0x50453aa8 },
     { name = "sys_dbg_get_ppu_thread_ids", fnid = 0x113b0bea },
@@ -91,17 +91,25 @@ functions = [
     { name = "sys_dbg_get_spu_thread_ids", fnid = 0x1860f909 },
     { name = "sys_dbg_get_spu_thread_name", fnid = 0x3e5eed36 },
     { name = "sys_dbg_initialize_ppu_exception_handler", fnid = 0xc353353a },
-    { name = "sys_dbg_mat_get_condition", fnid = 0x590a276e, sdk_370_only = true },
-    { name = "sys_dbg_mat_set_condition", fnid = 0x24a3d413, sdk_370_only = true },
+    { name = "sys_dbg_mat_get_condition", fnid = 0x590a276e, since_sdk = 270 },
+    { name = "sys_dbg_mat_set_condition", fnid = 0x24a3d413, since_sdk = 270 },
     { name = "sys_dbg_read_ppu_thread_context", fnid = 0xc5eef17f },
     { name = "sys_dbg_read_spu_thread_context", fnid = 0xc21ee635 },
-    { name = "sys_dbg_read_spu_thread_context2", fnid = 0x266c2bd3, sdk_370_only = true },
+    { name = "sys_dbg_read_spu_thread_context2", fnid = 0x266c2bd3, since_sdk = 270 },
     { name = "sys_dbg_register_ppu_exception_handler", fnid = 0x22916f45 },
-    { name = "sys_dbg_set_address_to_dabr", fnid = 0xdb14b37b, sdk_370_only = true },
-    { name = "sys_dbg_set_mask_to_ppu_exception_handler", fnid = 0xab475d53, sdk_370_only = true },
+    { name = "sys_dbg_set_address_to_dabr", fnid = 0xdb14b37b, since_sdk = 270 },
+    { name = "sys_dbg_set_mask_to_ppu_exception_handler", fnid = 0xab475d53, since_sdk = 370 },
     { name = "sys_dbg_set_stacksize_ppu_exception_handler", fnid = 0x06a840f5 },
-    { name = "sys_dbg_signal_to_coredump_handler", fnid = 0xd830062a, sdk_370_only = true },
-    { name = "sys_dbg_signal_to_ppu_exception_handler", fnid = 0x4ded9f6c, sdk_370_only = true },
+    { name = "sys_dbg_signal_to_coredump_handler", fnid = 0xd830062a, since_sdk = 270 },
+    { name = "sys_dbg_signal_to_ppu_exception_handler", fnid = 0x4ded9f6c, since_sdk = 270 },
     { name = "sys_dbg_unregister_ppu_exception_handler", fnid = 0xc6d7ec13 },
-    { name = "sys_dbg_vm_get_page_information", fnid = 0x580f8203, sdk_370_only = true },
+    { name = "sys_dbg_vm_get_page_information", fnid = 0x580f8203, since_sdk = 270 },
+]
+
+[libraries.sys_crashdump]
+module_id = 0x0009
+requires_feature = "sdk-crashdump"
+functions = [
+    { name = "sys_crash_dump_get_user_log_area", fnid = 0x52696620 },
+    { name = "sys_crash_dump_set_user_log_area", fnid = 0xb20f87b3 },
 ]

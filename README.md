@@ -146,18 +146,19 @@ Lv2Error::check(unsafe { sys_memory_get_user_memory_size(&mut info) })?;
 let available = info.available_user_memory;
 ```
 
-The default feature `sdk-370` selects the SDK 3.70 header ABI. To build
-against SDK 1.92, select its ABI when declaring the dependency:
+The default feature `sdk-370` selects the SDK 3.70 ABI and also matches the
+public LV2 function signatures and selectors in SDKs 4.60 and 4.75. For an
+older ABI, select `sdk-270` or `sdk-192` when declaring the dependency.
 
 ```toml
 ps3 = { version = "0.1", default-features = false, features = ["sdk-192"] }
 ```
 
-| Call | SDK 3.70 | SDK 1.92 |
-| --- | ---: | ---: |
-| `sys_memory_container_create` | 324 | 341 |
-| `sys_memory_container_destroy` | 325 | 342 |
-| `sys_rwlock_trywlock` | 148 | 126 |
+| Call | SDK 1.92 | SDK 2.70 | SDK 3.70 / 4.60 / 4.75 |
+| --- | ---: | ---: | ---: |
+| `sys_memory_container_create` | 341 | 324 | 324 |
+| `sys_memory_container_destroy` | 342 | 325 | 325 |
+| `sys_rwlock_trywlock` | 126 | 126 | 148 |
 
 Select one feature across the dependency graph. The selection is made at
 compile time. Check the running firmware and process permissions before
@@ -180,7 +181,17 @@ The selected ABI controls which symbols are imported. Enable `sdk-debug`
 to also expose `ps3::sys::sdk::debug` on firmware with the `sys_lv2dbg`
 library and the required debug permissions.
 
-To compare the public direct bindings with local SDK headers, run:
+Enable `sdk-crashdump` to use the public crash dump log area functions under
+`ps3::sys::sdk::crashdump`. They use the firmware's `sys_crashdump` library.
+The firmware and executable configuration determine whether a process can
+produce crash dump files.
+
+The `sdk-370` profile also provides `SysPrxModuleInfoV2` and the associated
+import and export records from SDKs 4.60 and 4.75. Query the extended record
+using `sys_prx_get_module_info_v2` on supporting firmware.
+
+Use the audit script to compare the direct selectors and ABI signatures
+against local SDK headers.
 
 ```sh
 python3 scripts/audit-lv2.py --public-sdk-headers INCLUDE_DIR --sdk-abi sdk-370
@@ -189,9 +200,10 @@ python3 scripts/audit-lv2.py --public-sdk-headers INCLUDE_DIR --sdk-abi sdk-370
 Add `--psl1ght-headers "$PS3DEV/ppu/include"` to compare inline selector
 coverage and argument counts with a local PSL1GHT installation. Pass
 `--lv2-stub-archive PATH_TO_LIBLV2_STUB_A --ppu-bin "$PS3DEV/ppu/bin"` to
-also compare the public library declarations and import IDs. Pass
-`--lv2-debug-stub-archive PATH_TO_LIBLV2DBG_STUB_A` for the debug library.
-The archive checks use Python 3.11 or later.
+also compare the public library signatures and import IDs. The debug and
+crash dump libraries use `--lv2-debug-stub-archive PATH_TO_LIBLV2DBG_STUB_A`
+and `--crashdump-stub-archive PATH_TO_LIBCRASHDUMP_STUB_A`. The archive checks
+use Python 3.11 or later.
 
 To build the smoke program with a PS3DEV GNU linker:
 
@@ -203,8 +215,9 @@ CARGO_ENCODED_RUSTFLAGS='' cargo -Z unstable-options -Z build-std=core,alloc \
     -C link-arg=--no-toc-optimize -C link-arg=--no-multi-toc
 ```
 
-To build the 1.92 variant, add `--no-default-features --features sdk-192`
-before the `--`. Boot `target/powerpc64-sony-ps3/release/lv2-smoke.ELF` in
+For `sdk-192` or `sdk-270`, pass `--no-default-features` and the selected
+`--features` value before the `--`. Boot
+`target/powerpc64-sony-ps3/release/lv2-smoke.ELF` in
 RPCS3. The program prints `LV2 ABI smoke passed` after checking process and
 time calls, memory allocation, mapped memory and containers, event queues,
 timers, semaphores, read/write locks, and thread creation and join.

@@ -13,7 +13,7 @@ pub const SYS_PRX_STOP_SUCCESS: i32 = 0;
 pub const SYS_PRX_STOP_FAILED: i32 = 1;
 pub const SYS_PRX_PROCESS_ELF_ID: SysPrxId = 0;
 pub const SYS_PRX_MODULE_FILENAME_SIZE: usize = 512;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_PRX_LOAD_MODULE_FLAGS_FIXEDADDR: u64 = 1;
 
 macro_rules! size_option {
@@ -46,7 +46,7 @@ size_option!(
     SysPrxUnloadModuleOption,
     SysPrxGetModuleIdByNameOption,
 );
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 size_option!(SysPrxLoadModuleListOption);
 
 #[repr(C)]
@@ -117,6 +117,123 @@ impl Default for SysPrxModuleInfo {
     }
 }
 
+/// Extended module metadata from SDK 4.60.
+#[cfg(feature = "sdk-370")]
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct SysPrxModuleInfoV2 {
+    pub module: SysPrxModuleInfo,
+    /// Effective address of the module's `.lib.ent` section.
+    pub exports_addr: u32,
+    pub exports_size: u32,
+    /// Effective address of the module's `.lib.stub` section.
+    pub imports_addr: u32,
+    pub imports_size: u32,
+}
+
+#[cfg(feature = "sdk-370")]
+impl Default for SysPrxModuleInfoV2 {
+    fn default() -> Self {
+        Self {
+            module: SysPrxModuleInfo {
+                size: core::mem::size_of::<Self>() as u64,
+                ..Default::default()
+            },
+            exports_addr: 0,
+            exports_size: 0,
+            imports_addr: 0,
+            imports_size: 0,
+        }
+    }
+}
+
+/// ELF32 library export record in a module's `.lib.ent` section.
+#[cfg(feature = "sdk-370")]
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct SysPrxLibraryExport {
+    pub size: u8,
+    pub reserved1: u8,
+    pub version: u16,
+    pub attributes: u16,
+    pub function_count: u16,
+    pub variable_count: u16,
+    pub tls_count: u16,
+    pub hash_info: u8,
+    pub tls_hash_info: u8,
+    pub reserved2: u8,
+    pub alternate_nid_sets: u8,
+    pub name_addr: u32,
+    pub nid_table_addr: u32,
+    pub address_table_addr: u32,
+}
+
+/// ELF32 library import record in a module's `.lib.stub` section.
+#[cfg(feature = "sdk-370")]
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct SysPrxLibraryImport {
+    pub size: u8,
+    pub reserved1: u8,
+    pub version: u16,
+    pub attributes: u16,
+    pub function_count: u16,
+    pub variable_count: u16,
+    pub tls_count: u16,
+    pub reserved2: [u8; 4],
+    pub name_addr: u32,
+    pub function_nid_table_addr: u32,
+    pub function_table_addr: u32,
+    pub variable_nid_table_addr: u32,
+    pub variable_table_addr: u32,
+    pub tls_nid_table_addr: u32,
+    pub tls_table_addr: u32,
+}
+
+/// ELF32 relocation entry for an imported variable.
+#[cfg(feature = "sdk-370")]
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
+pub struct SysPrxVariableRelocation {
+    pub kind: u32,
+    pub address: u32,
+    pub addend: u32,
+}
+
+#[cfg(feature = "sdk-370")]
+const _: () = {
+    use core::mem::{align_of, offset_of, size_of};
+    assert!(size_of::<SysPrxModuleInfoV2>() == 88);
+    assert!(align_of::<SysPrxModuleInfoV2>() == 8);
+    assert!(offset_of!(SysPrxModuleInfoV2, exports_addr) == 72);
+    assert!(offset_of!(SysPrxModuleInfoV2, imports_addr) == 80);
+    assert!(size_of::<SysPrxLibraryExport>() == 28);
+    assert!(align_of::<SysPrxLibraryExport>() == 4);
+    assert!(offset_of!(SysPrxLibraryExport, name_addr) == 16);
+    assert!(size_of::<SysPrxLibraryImport>() == 44);
+    assert!(align_of::<SysPrxLibraryImport>() == 4);
+    assert!(offset_of!(SysPrxLibraryImport, name_addr) == 16);
+    assert!(size_of::<SysPrxVariableRelocation>() == 12);
+    assert!(align_of::<SysPrxVariableRelocation>() == 4);
+};
+
+/// Queries the extended PRX module information on supporting firmware.
+///
+/// # Safety
+///
+/// The effective addresses and lengths in `info.module` must describe valid
+/// writable buffers or omit the corresponding output. Any returned section
+/// addresses are valid only while the queried module remains loaded.
+#[cfg(feature = "sdk-370")]
+pub unsafe fn sys_prx_get_module_info_v2(
+    id: SysPrxId,
+    flags: u64,
+    info: &mut SysPrxModuleInfoV2,
+) -> i32 {
+    info.module.size = core::mem::size_of::<SysPrxModuleInfoV2>() as u64;
+    sys_prx_get_module_info(id, flags, core::ptr::from_mut(info).cast())
+}
+
 const _: () = {
     use core::mem::{align_of, offset_of, size_of};
     assert!(size_of::<SysPrxSegmentInfo>() == 40);
@@ -160,7 +277,7 @@ extern "C" {
         flags: u64,
         option: *mut SysPrxLoadModuleOption,
     ) -> SysPrxId;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub fn sys_prx_load_module_list(
         count: i32,
         paths_addr: *const u32,
@@ -168,7 +285,7 @@ extern "C" {
         option: *mut SysPrxLoadModuleListOption,
         ids: *mut SysPrxId,
     ) -> i32;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub fn sys_prx_load_module_list_on_memcontainer(
         count: i32,
         paths_addr: *const u32,

@@ -191,20 +191,20 @@ define_syscalls! {
     pub unsafe fn sys_event_port_connect_local(event_port_id: u32, event_queue_id: u32) -> i32 = SYS_EVENT_PORT_CONNECT_LOCAL;
     pub unsafe fn sys_event_port_disconnect(eport_id: u32) -> i32 = SYS_EVENT_PORT_DISCONNECT;
     pub unsafe fn sys_event_port_send(event_port_id: u32, data1: u64, data2: u64, data3: u64) -> i32 = SYS_EVENT_PORT_SEND;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub unsafe fn sys_event_flag_create(id: *mut u32, attr: *const SysEventFlagAttribute, init: u64) -> i32 = SYS_EVENT_FLAG_CREATE;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub unsafe fn sys_event_flag_destroy(id: u32) -> i32 = SYS_EVENT_FLAG_DESTROY;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub unsafe fn sys_event_flag_wait(id: u32, bitptn: u64, mode: u32, result: *mut u64, timeout: u64) -> i32 = SYS_EVENT_FLAG_WAIT;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub unsafe fn sys_event_flag_trywait(id: u32, bitptn: u64, mode: u32, result: *mut u64) -> i32 = SYS_EVENT_FLAG_TRYWAIT;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub unsafe fn sys_event_flag_set(id: u32, bitptn: u64) -> i32 = SYS_EVENT_FLAG_SET;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub unsafe fn sys_event_flag_clear(id: u32, bitptn: u64) -> i32 = SYS_EVENT_FLAG_CLEAR;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub unsafe fn sys_event_flag_cancel(id: u32, num: *mut i32) -> i32 = SYS_EVENT_FLAG_CANCEL;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub unsafe fn sys_event_flag_get(id: u32, flags: *mut u64) -> i32 = SYS_EVENT_FLAG_GET;
 }

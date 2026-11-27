@@ -58,36 +58,36 @@ define_syscalls! {
     pub unsafe fn sys_memory_container_destroy(cid: u32) -> i32 = SYS_MEMORY_CONTAINER_DESTROY;
     pub unsafe fn sys_memory_container_get_size(mem_info: *mut SysMemoryInfo, cid: u32) -> i32 = SYS_MEMORY_CONTAINER_GET_SIZE;
     pub unsafe fn sys_mmapper_allocate_address(size: u32, flags: u64, alignment: u32, alloc_addr: *mut u32) -> i32 = SYS_MMAPPER_ALLOCATE_ADDRESS;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub unsafe fn sys_mmapper_allocate_fixed_address() -> i32 = SYS_MMAPPER_ALLOCATE_FIXED_ADDRESS;
     pub unsafe fn sys_mmapper_change_address_access_right(addr: u32, flags: u64) -> i32 = SYS_MMAPPER_CHANGE_ADDRESS_ACCESS_RIGHT;
     pub unsafe fn sys_mmapper_free_address(addr: u32) -> i32 = SYS_MMAPPER_FREE_ADDRESS;
     pub unsafe fn sys_mmapper_search_and_map(start_addr: u32, mem_id: u32, flags: u64, alloc_addr: *mut u32) -> i32 = SYS_MMAPPER_SEARCH_AND_MAP;
     pub unsafe fn sys_mmapper_enable_page_fault_notification(start_addr: u32, event_queue_id: u32) -> i32 = SYS_MMAPPER_ENABLE_PAGE_FAULT_NOTIFICATION;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub unsafe fn sys_vm_memory_map(vsize: u32, psize: u32, cid: u32, flag: u64, policy: u64, addr: *mut u32) -> i32 = SYS_VM_MEMORY_MAP;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub unsafe fn sys_vm_unmap(addr: u32) -> i32 = SYS_VM_UNMAP;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub unsafe fn sys_vm_append_memory(addr: u32, size: u32) -> i32 = SYS_VM_APPEND_MEMORY;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub unsafe fn sys_vm_return_memory(addr: u32, size: u32) -> i32 = SYS_VM_RETURN_MEMORY;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub unsafe fn sys_vm_lock(addr: u32, size: u32) -> i32 = SYS_VM_LOCK;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub unsafe fn sys_vm_unlock(addr: u32, size: u32) -> i32 = SYS_VM_UNLOCK;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub unsafe fn sys_vm_touch(addr: u32, size: u32) -> i32 = SYS_VM_TOUCH;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub unsafe fn sys_vm_flush(addr: u32, size: u32) -> i32 = SYS_VM_FLUSH;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub unsafe fn sys_vm_invalidate(addr: u32, size: u32) -> i32 = SYS_VM_INVALIDATE;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub unsafe fn sys_vm_store(addr: u32, size: u32) -> i32 = SYS_VM_STORE;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub unsafe fn sys_vm_sync(addr: u32, size: u32) -> i32 = SYS_VM_SYNC;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub unsafe fn sys_vm_test(addr: u32, size: u32, result: *mut u64) -> i32 = SYS_VM_TEST;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub unsafe fn sys_vm_get_statistics(addr: u32, stat: *mut SysVmStatistics) -> i32 = SYS_VM_GET_STATISTICS;
 }

@@ -41,7 +41,7 @@ struct LibraryConfig {
     #[serde(default = "default_module_id")]
     module_id: u16,
     #[serde(default)]
-    sdk_debug_only: bool,
+    requires_feature: Option<String>,
     #[serde(default)]
     functions: Vec<FunctionConfig>,
 }
@@ -55,7 +55,7 @@ struct FunctionConfig {
     name: String,
     fnid: u32,
     #[serde(default)]
-    sdk_370_only: bool,
+    since_sdk: u16,
 }
 
 fn generate_sprx_assembly(config: &SprxConfig) -> String {
@@ -229,23 +229,35 @@ fn main() {
     };
 
     if env::var_os("CARGO_FEATURE_SDK_IMPORTS").is_some() {
-        let sdk: SprxConfig =
+        let sdk_config: SprxConfig =
             toml::from_str(include_str!("sdk-imports.toml")).expect("invalid built-in SDK imports");
-        let sdk_370 = env::var_os("CARGO_FEATURE_SDK_370").is_some();
+        let sdk = [
+            ("CARGO_FEATURE_SDK_370", 370),
+            ("CARGO_FEATURE_SDK_270", 270),
+            ("CARGO_FEATURE_SDK_192", 192),
+        ]
+        .into_iter()
+        .find_map(|(feature, version)| env::var_os(feature).map(|_| version))
+        .unwrap_or_default();
 
-        let sdk_debug = env::var_os("CARGO_FEATURE_SDK_DEBUG").is_some();
-        for (name, mut library) in sdk.libraries {
-            if library.sdk_debug_only && !sdk_debug {
-                continue;
+        for (name, mut library) in sdk_config.libraries {
+            if let Some(feature) = &library.requires_feature {
+                let env_name = format!(
+                    "CARGO_FEATURE_{}",
+                    feature.replace('-', "_").to_ascii_uppercase()
+                );
+                if env::var_os(env_name).is_none() {
+                    continue;
+                }
             }
-            library.functions.retain(|f| sdk_370 || !f.sdk_370_only);
+            library.functions.retain(|f| f.since_sdk <= sdk);
             let configured =
                 config
                     .libraries
                     .entry(name.clone())
                     .or_insert_with(|| LibraryConfig {
                         module_id: library.module_id,
-                        sdk_debug_only: false,
+                        requires_feature: None,
                         functions: Vec::new(),
                     });
             assert_eq!(

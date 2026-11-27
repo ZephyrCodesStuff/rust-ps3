@@ -79,7 +79,7 @@ define_syscalls! {
     pub unsafe fn sys_process_getpid() -> u32 = SYS_PROCESS_GETPID;
     pub unsafe fn sys_process_getppid() -> u32 = SYS_PROCESS_GETPPID;
     /// Reads the current process's 32-bit PPU GUID.
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub unsafe fn sys_process_get_ppu_guid() -> u32 = SYS_PROCESS_GET_PPU_GUID;
 
     pub unsafe fn sys_process_get_number_of_object(object: u32, nump: *mut u32) -> i32 = SYS_PROCESS_GET_NUMBER_OF_OBJECT;

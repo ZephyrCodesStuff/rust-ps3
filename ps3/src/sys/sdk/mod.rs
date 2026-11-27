@@ -6,6 +6,8 @@
 //! the corresponding SDK function. Embedded pointers use 32-bit effective
 //! addresses. Pointer arguments use Rust raw pointers.
 
+#[cfg(feature = "sdk-crashdump")]
+pub mod crashdump;
 #[cfg(feature = "sdk-debug")]
 pub mod debug;
 pub mod memory;

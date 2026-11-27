@@ -210,7 +210,7 @@ pub unsafe fn sys_interrupt_thread_establish(
 ///
 /// The running firmware must implement the SDK 3.70 PRX GUID selector.
 /// A returned nonzero address is valid only while the module remains loaded.
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub unsafe fn sys_prx_get_ppu_guid(module_id: i32) -> u32 {
     const SYS_PRX_GET_PPU_GUID: u64 = 467;
     invoke!(SYS_PRX_GET_PPU_GUID, module_id) as u32

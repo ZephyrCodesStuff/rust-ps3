@@ -3,10 +3,13 @@
 //! Every syscall preserves the TOC register (`r2`) and creates a standard
 //! parameter/linkage stack frame below the compiler’s red zone.
 
-#[cfg(all(feature = "sdk-370", feature = "sdk-192"))]
-compile_error!("select exactly one PS3 syscall SDK ABI: `sdk-370` or `sdk-192`");
-#[cfg(not(any(feature = "sdk-370", feature = "sdk-192")))]
-compile_error!("select exactly one PS3 syscall SDK ABI: `sdk-370` or `sdk-192`");
+#[cfg(any(
+    all(feature = "sdk-192", feature = "sdk-270"),
+    all(feature = "sdk-192", feature = "sdk-370"),
+    all(feature = "sdk-270", feature = "sdk-370"),
+    not(any(feature = "sdk-192", feature = "sdk-270", feature = "sdk-370")),
+))]
+compile_error!("select exactly one PS3 syscall SDK ABI: `sdk-192`, `sdk-270`, or `sdk-370`");
 
 pub mod nr;
 
@@ -108,7 +111,7 @@ mod mmapper;
 pub mod portable;
 pub mod raw;
 
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub use compat::sys_prx_get_ppu_guid;
 pub use compat::{
     sys_interrupt_thread_establish, sys_ppu_thread_create, sys_prx_start_module_raw,

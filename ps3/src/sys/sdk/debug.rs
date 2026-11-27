@@ -4,10 +4,10 @@
 //! Query calls that fill arrays require writable storage of the capacity
 //! supplied in the corresponding input field or argument.
 
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 use super::sync::SysLwcondAttribute;
 use super::sync::SysLwmutexAttribute;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 use crate::sys::raw::SysEventFlagAttribute;
 use crate::sys::raw::{
     PpuFunctionDescriptor, SysCondAttribute, SysEventQueueAttribute, SysMutexAttribute,
@@ -16,11 +16,11 @@ use crate::sys::raw::{
 
 pub const SYS_DBG_PPU_THREAD_STOP: u64 = 0x1;
 pub const SYS_DBG_SPU_THREAD_GROUP_STOP: u64 = 0x2;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_DBG_SYSTEM_PPU_THREAD_NOT_STOP: u64 = 0x4;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_DBG_SYSTEM_SPU_THREAD_GROUP_NOT_STOP: u64 = 0x8;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_DBG_NOT_EXE_CTRL_BY_COREDUMP_EVENT: u64 = 0x10;
 pub const SYS_DBG_PPU_EXCEPTION_TRAP: u64 = 0x1000000;
 pub const SYS_DBG_PPU_EXCEPTION_PREV_INST: u64 = 0x2000000;
@@ -32,29 +32,29 @@ pub const SYS_DBG_PPU_EXCEPTION_DATA_SLB_MISS: u64 = 0x40000000;
 pub const SYS_DBG_PPU_EXCEPTION_FLOAT: u64 = 0x80000000;
 pub const SYS_DBG_PPU_EXCEPTION_DABR_MATCH: u64 = 0x100000000;
 pub const SYS_DBG_PPU_EXCEPTION_ALIGNMENT: u64 = 0x200000000;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_DBG_PPU_EXCEPTION_DATA_MAT: u64 = 0x2000000000;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_DBG_EVENT_CORE_DUMPED: u64 = 0x1000;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_DBG_EVENT_PPU_EXCEPTION_HANDLER_SIGNALED: u64 = 0x2000;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_VM_STATE_LOCKED: u64 = 0x8;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_VM_STATE_DIRTY: u64 = 0x10;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_DBG_DABR_CTRL_READ: u64 = 0x5;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_DBG_DABR_CTRL_WRITE: u64 = 0x6;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_DBG_DABR_CTRL_CLEAR: u64 = 0x0;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_DBG_MAT_TRANSPARENT: u64 = 0x1;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_DBG_MAT_WRITE: u64 = 0x2;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_DBG_MAT_READ_WRITE: u64 = 0x4;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_MAT_GRANULARITY: u32 = 0x1000;
 
 /// The 16-byte register union used by the PPU and SPU debug contexts.
@@ -98,7 +98,7 @@ pub struct SysDbgSpuThreadContext {
     pub mfc_command_queue: [u64; 96],
 }
 
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct SysDbgSpuThreadContext2 {
@@ -182,7 +182,7 @@ pub struct SysDbgLwmutexInformation {
     pub waiters: SysDbgWaitList,
 }
 
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct SysDbgLwcondInformation {
@@ -191,7 +191,7 @@ pub struct SysDbgLwcondInformation {
     pub waiters: SysDbgWaitList,
 }
 
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SysDbgEventFlagWaitInformation {
@@ -199,7 +199,7 @@ pub struct SysDbgEventFlagWaitInformation {
     pub mode: u32,
 }
 
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct SysDbgEventFlagInformation {
@@ -211,7 +211,7 @@ pub struct SysDbgEventFlagInformation {
     pub total_waiter_count: u32,
 }
 
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct SysVmPageInformation {
@@ -249,12 +249,12 @@ impl SysDbgSpuThreadGroupStatus {
     pub const UNKNOWN: Self = Self(8);
 }
 
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 #[repr(transparent)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SysDbgCoredumpParameter(pub u32);
 
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 impl SysDbgCoredumpParameter {
     pub const OFF: Self = Self(0);
     pub const APP_HOME: Self = Self(1);
@@ -281,7 +281,7 @@ assert_layout!(
     configuration = 2064,
     mfc_command_queue = 2104
 );
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 assert_layout!(
     SysDbgSpuThreadContext2,
     2888,
@@ -310,11 +310,11 @@ assert_layout!(
 );
 assert_layout!(SysDbgSemaphoreInformation, 56, 8, waiters = 40);
 assert_layout!(SysDbgLwmutexInformation, 40, 8, owner = 16, waiters = 28);
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 assert_layout!(SysDbgLwcondInformation, 24, 4, waiters = 12);
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 assert_layout!(SysDbgEventFlagWaitInformation, 16, 8, mode = 8);
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 assert_layout!(
     SysDbgEventFlagInformation,
     56,
@@ -322,22 +322,22 @@ assert_layout!(
     pattern = 32,
     wait_info_addr = 44
 );
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 assert_layout!(SysVmPageInformation, 8, 8);
 assert_layout!(SysDbgPpuThreadStatus, 4, 4);
 assert_layout!(SysDbgSpuThreadGroupStatus, 4, 4);
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 assert_layout!(SysDbgCoredumpParameter, 4, 4);
 
 extern "C" {
     pub fn sys_dbg_read_ppu_thread_context(id: u64, context: *mut SysDbgPpuThreadContext) -> i32;
     pub fn sys_dbg_read_spu_thread_context(id: u32, context: *mut SysDbgSpuThreadContext) -> i32;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub fn sys_dbg_read_spu_thread_context2(id: u32, context: *mut SysDbgSpuThreadContext2) -> i32;
     pub fn sys_dbg_set_stacksize_ppu_exception_handler(size: u32) -> i32;
     pub fn sys_dbg_initialize_ppu_exception_handler(priority: i32) -> i32;
     pub fn sys_dbg_finalize_ppu_exception_handler() -> i32;
-    /// The callback takes three 64-bit values. SDK 3.70 describes the
+    /// The callback takes three 64-bit values. SDKs 2.70 and 3.70 describe the
     /// order as exception type, thread ID, and data address. SDK 1.92
     /// documents the thread ID before the exception type.
     pub fn sys_dbg_register_ppu_exception_handler(
@@ -345,7 +345,7 @@ extern "C" {
         flags: u64,
     ) -> i32;
     pub fn sys_dbg_unregister_ppu_exception_handler() -> i32;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub fn sys_dbg_signal_to_ppu_exception_handler(flags: u64) -> i32;
     pub fn sys_dbg_get_mutex_information(id: u32, info: *mut SysDbgMutexInformation) -> i32;
     pub fn sys_dbg_get_cond_information(id: u32, info: *mut SysDbgCondInformation) -> i32;
@@ -357,9 +357,9 @@ extern "C" {
     pub fn sys_dbg_get_semaphore_information(id: u32, info: *mut SysDbgSemaphoreInformation)
         -> i32;
     pub fn sys_dbg_get_lwmutex_information(id: u32, info: *mut SysDbgLwmutexInformation) -> i32;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub fn sys_dbg_get_lwcond_information(id: u32, info: *mut SysDbgLwcondInformation) -> i32;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub fn sys_dbg_get_event_flag_information(
         id: u32,
         info: *mut SysDbgEventFlagInformation,
@@ -381,37 +381,37 @@ extern "C" {
         id: u32,
         status: *mut SysDbgSpuThreadGroupStatus,
     ) -> i32;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub fn sys_dbg_enable_floating_point_enabled_exception(
         id: u64,
         flags: u64,
         opt1: u64,
         opt2: u64,
     ) -> i32;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub fn sys_dbg_disable_floating_point_enabled_exception(
         id: u64,
         flags: u64,
         opt1: u64,
         opt2: u64,
     ) -> i32;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub fn sys_dbg_vm_get_page_information(
         addr: u32,
         count: u32,
         info: *mut SysVmPageInformation,
     ) -> i32;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub fn sys_dbg_set_address_to_dabr(addr: u64, flags: u64) -> i32;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub fn sys_dbg_get_address_from_dabr(addr: *mut u64, flags: *mut u64) -> i32;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub fn sys_dbg_signal_to_coredump_handler(data1: u64, data2: u64, data3: u64) -> i32;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub fn sys_dbg_mat_set_condition(addr: u32, condition: u64) -> i32;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub fn sys_dbg_mat_get_condition(addr: u32, condition: *mut u64) -> i32;
-    #[cfg(feature = "sdk-370")]
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub fn sys_dbg_get_coredump_params(params: *mut SysDbgCoredumpParameter) -> i32;
     #[cfg(feature = "sdk-370")]
     pub fn sys_dbg_set_mask_to_ppu_exception_handler(mask: u64, flags: u64) -> i32;

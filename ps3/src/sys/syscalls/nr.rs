@@ -9,7 +9,7 @@ pub const SYS_PROCESS_GET_NUMBER_OF_OBJECT: u64 = 12;
 pub const SYS_PROCESS_GET_ID: u64 = 13;
 pub const SYS_PROCESS_IS_SPU_LOCK_LINE_RESERVATION_ADDRESS: u64 = 14;
 pub const SYS_PROCESS_GETPPID: u64 = 18;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_PROCESS_GET_PPU_GUID: u64 = 31;
 pub(crate) const _SYS_PPU_THREAD_EXIT: u64 = 41;
 pub const SYS_PPU_THREAD_YIELD: u64 = 43;
@@ -34,16 +34,16 @@ pub const SYS_TIMER_CONNECT_EVENT_QUEUE: u64 = 75;
 pub const SYS_TIMER_DISCONNECT_EVENT_QUEUE: u64 = 76;
 pub const SYS_INTERRUPT_TAG_CREATE: u64 = 80;
 pub const SYS_INTERRUPT_TAG_DESTROY: u64 = 81;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_EVENT_FLAG_CREATE: u64 = 82;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_EVENT_FLAG_DESTROY: u64 = 83;
 pub const _SYS_INTERRUPT_THREAD_ESTABLISH: u64 = 84;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_EVENT_FLAG_WAIT: u64 = 85;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_EVENT_FLAG_TRYWAIT: u64 = 86;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_EVENT_FLAG_SET: u64 = 87;
 pub const SYS_INTERRUPT_THREAD_EOI: u64 = 88;
 pub const _SYS_INTERRUPT_THREAD_DISESTABLISH: u64 = 89;
@@ -64,7 +64,7 @@ pub const SYS_COND_SIGNAL: u64 = 108;
 pub const SYS_COND_SIGNAL_ALL: u64 = 109;
 pub const SYS_COND_SIGNAL_TO: u64 = 110;
 pub const SYS_SEMAPHORE_GET_VALUE: u64 = 114;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_EVENT_FLAG_CLEAR: u64 = 118;
 pub const SYS_RWLOCK_CREATE: u64 = 120;
 pub const SYS_RWLOCK_DESTROY: u64 = 121;
@@ -74,14 +74,14 @@ pub const SYS_RWLOCK_RUNLOCK: u64 = 124;
 pub const SYS_RWLOCK_WLOCK: u64 = 125;
 #[cfg(feature = "sdk-370")]
 pub const SYS_RWLOCK_TRYWLOCK: u64 = 148;
-#[cfg(feature = "sdk-192")]
+#[cfg(any(feature = "sdk-192", feature = "sdk-270"))]
 pub const SYS_RWLOCK_TRYWLOCK: u64 = 126;
 pub const SYS_RWLOCK_WUNLOCK: u64 = 127;
 pub const SYS_EVENT_QUEUE_CREATE: u64 = 128;
 pub const SYS_EVENT_QUEUE_DESTROY: u64 = 129;
 pub const SYS_EVENT_QUEUE_RECEIVE: u64 = 130;
 pub const SYS_EVENT_QUEUE_TRYRECEIVE: u64 = 131;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_EVENT_FLAG_CANCEL: u64 = 132;
 pub const SYS_EVENT_QUEUE_DRAIN: u64 = 133;
 pub const SYS_EVENT_PORT_CREATE: u64 = 134;
@@ -89,7 +89,7 @@ pub const SYS_EVENT_PORT_DESTROY: u64 = 135;
 pub const SYS_EVENT_PORT_CONNECT_LOCAL: u64 = 136;
 pub const SYS_EVENT_PORT_DISCONNECT: u64 = 137;
 pub const SYS_EVENT_PORT_SEND: u64 = 138;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_EVENT_FLAG_GET: u64 = 139;
 pub const SYS_TIMER_USLEEP: u64 = 141;
 pub const SYS_TIMER_SLEEP: u64 = 142;
@@ -142,41 +142,41 @@ pub const SYS_SPU_THREAD_GROUP_DISCONNECT_EVENT_ALL_THREADS: u64 = 252;
 #[cfg(feature = "sdk-370")]
 pub const SYS_SPU_THREAD_GROUP_LOG: u64 = 254;
 pub const SYS_SPU_IMAGE_OPEN_BY_FD: u64 = 260;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_VM_MEMORY_MAP: u64 = 300;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_VM_UNMAP: u64 = 301;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_VM_APPEND_MEMORY: u64 = 302;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_VM_RETURN_MEMORY: u64 = 303;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_VM_LOCK: u64 = 304;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_VM_UNLOCK: u64 = 305;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_VM_TOUCH: u64 = 306;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_VM_FLUSH: u64 = 307;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_VM_INVALIDATE: u64 = 308;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_VM_STORE: u64 = 309;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_VM_SYNC: u64 = 310;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_VM_TEST: u64 = 311;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_VM_GET_STATISTICS: u64 = 312;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_MEMORY_CONTAINER_CREATE: u64 = 324;
 #[cfg(feature = "sdk-192")]
 pub const SYS_MEMORY_CONTAINER_CREATE: u64 = 341;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_MEMORY_CONTAINER_DESTROY: u64 = 325;
 #[cfg(feature = "sdk-192")]
 pub const SYS_MEMORY_CONTAINER_DESTROY: u64 = 342;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_MMAPPER_ALLOCATE_FIXED_ADDRESS: u64 = 326;
 pub const SYS_MMAPPER_ENABLE_PAGE_FAULT_NOTIFICATION: u64 = 327;
 pub const SYS_MMAPPER_ALLOCATE_ADDRESS: u64 = 330;
@@ -201,9 +201,9 @@ pub(crate) const _SYS_PRX_START_MODULE: u64 = 481;
 pub(crate) const _SYS_PRX_STOP_MODULE: u64 = 482;
 pub const SYS_GPIO_SET: u64 = 630;
 pub const SYS_GPIO_GET: u64 = 631;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_FSW_CONNECT_EVENT: u64 = 633;
-#[cfg(feature = "sdk-370")]
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
 pub const SYS_FSW_DISCONNECT_EVENT: u64 = 634;
 pub const SYS_SS_GET_OPEN_PSID: u64 = 872;
 pub const SYS_DECI3_OPEN: u64 = 880;
