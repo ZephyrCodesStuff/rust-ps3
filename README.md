@@ -58,6 +58,7 @@ See `examples/` directory for sample programs (`examples/hello-world` and `examp
 - [ ] RSX / libgcm 3D graphics hardware acceleration
   - [x] GCM firmware imports, video output, and a framebuffer clear and flip
   - [x] Vertex and index buffers, shader upload, and triangle rendering
+  - [x] Texture sampling and GPU memory copies
 - [ ] `std` support
 - [ ] Automated self / `EBOOT.BIN` packaging
 
@@ -138,15 +139,16 @@ PPU-layout graphics records, a command FIFO, and video output configuration.
 Use `moldier patch` to prepare the executable's imports before running it.
 
 The `rsx-triangle` example maps a 1 MiB-aligned I/O buffer, sets up a local
-framebuffer, and renders an indexed triangle with vertex and fragment shaders
-before waiting for a display flip. Build it with
+framebuffer, and draws two triangles. One uses indexed geometry and a
+texture copied into place by the GPU. Build it with
 `./scripts/build.sh rsx-triangle`. The example shows the memory ownership
 and synchronization needed to submit commands.
 
 The example ships preassembled shaders. To rebuild them with PSL1GHT's
 `cgcomp`, go to `examples/rsx-triangle/shaders` and run
 `cgcomp -a -v triangle.vp triangle.vpo` and
-`cgcomp -a -f triangle.fp triangle.fpo`. Build the example with
+`cgcomp -a -f triangle.fp triangle.fpo`. Repeat for the `texture` shaders.
+Build the example with
 `--features verify-framebuffer` to check the rendered pixels on hardware
 or in RPCS3 with **Write Color Buffers** enabled.
 

@@ -6,18 +6,23 @@ use core::ptr::addr_of_mut;
 use ps3::println;
 use ps3::rsx::{
     shader::{FragmentProgram, VertexProgram},
-    video, ClearMask, Context, Error, FlipMode, IndexType, Location, Primitive, Surface,
-    VertexAttribute, VertexType, Viewport,
+    video, ClearMask, Context, Error, FlipMode, IndexType, Location, Primitive, Sampler, Surface,
+    Texture, TransferMemory, VertexAttribute, VertexType, Viewport,
 };
 use ps3::sys::sys_timer_usleep;
 
 const MIB: usize = 1024 * 1024;
 const IO_SIZE: usize = MIB;
 const COLOR: u32 = 0xff35_78c8;
-const VERTICES: [[f32; 8]; 3] = [
-    [0.0, 0.7, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0],
-    [-0.7, -0.6, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0],
-    [0.7, -0.6, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0],
+const TEXEL: u32 = 0xff00_dc00;
+const TEX_PITCH: u32 = 64;
+const VERTICES: [[f32; 8]; 6] = [
+    [-0.5, 0.7, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0],
+    [-0.9, -0.6, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0],
+    [-0.1, -0.6, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0],
+    [0.5, 0.7, 0.0, 1.0, 0.5, 0.0, 0.0, 1.0],
+    [0.1, -0.6, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
+    [0.9, -0.6, 0.0, 1.0, 1.0, 1.0, 0.0, 1.0],
 ];
 
 #[repr(C, align(1048576))]
@@ -47,9 +52,18 @@ fn run() -> Result<(), Error> {
         .map_err(|_| Error::InvalidArgument)?;
     let fragment = FragmentProgram::parse(include_bytes!("../shaders/triangle.fpo"))
         .map_err(|_| Error::InvalidArgument)?;
-    let index_offset = (fragment_offset + fragment.microcode().len() as u32).next_multiple_of(128);
+    let textured_vertex = VertexProgram::parse(include_bytes!("../shaders/texture.vpo"))
+        .map_err(|_| Error::InvalidArgument)?;
+    let textured_fragment = FragmentProgram::parse(include_bytes!("../shaders/texture.fpo"))
+        .map_err(|_| Error::InvalidArgument)?;
+    let textured_offset =
+        (fragment_offset + fragment.microcode().len() as u32).next_multiple_of(128);
+    let index_offset =
+        (textured_offset + textured_fragment.microcode().len() as u32).next_multiple_of(128);
+    let texture_source = (index_offset + 6).next_multiple_of(128);
+    let texture_dest = texture_source + TEX_PITCH * 4;
     if config.local_address == 0
-        || index_offset + 6 > config.local_size
+        || texture_dest + TEX_PITCH * 4 > config.local_size
         || context.address_to_offset(config.local_address)? != 0
     {
         return Err(Error::InvalidContext);
@@ -80,13 +94,29 @@ fn run() -> Result<(), Error> {
         // These local-memory allocations do not overlap either render target.
         let vram = config.local_address as usize as *mut u8;
         vram.add(vertex_offset as usize)
-            .cast::<[[f32; 8]; 3]>()
+            .cast::<[[f32; 8]; 6]>()
             .write(VERTICES);
         vram.add(fragment_offset as usize)
             .copy_from_nonoverlapping(fragment.microcode().as_ptr(), fragment.microcode().len());
+        vram.add(textured_offset as usize).copy_from_nonoverlapping(
+            textured_fragment.microcode().as_ptr(),
+            textured_fragment.microcode().len(),
+        );
         vram.add(index_offset as usize)
             .cast::<[u16; 3]>()
-            .write([0, 1, 2]);
+            .write([3, 4, 5]);
+        for row in 0..4 {
+            vram.add((texture_source + row * TEX_PITCH) as usize)
+                .cast::<[u32; 4]>()
+                .write([TEXEL; 4]);
+        }
+        let region = |offset| TransferMemory {
+            location: Location::Local,
+            offset,
+            pitch: TEX_PITCH as i32,
+        };
+        context.copy_rows(region(texture_source), region(texture_dest), 16, 4)?;
+        context.finish(0x1234_5677, 30_000)?;
 
         context.set_display_buffer(0, 0, pitch, size.width.into(), size.height.into())?;
         context.set_surface(&surface)?;
@@ -100,7 +130,11 @@ fn run() -> Result<(), Error> {
         context.clear(ClearMask::COLOR)?;
         context.load_vertex_program(&vertex)?;
         context.load_fragment_program(&fragment, Location::Local, fragment_offset)?;
-        for (slot, offset) in [(0, vertex_offset), (3, vertex_offset + 16)] {
+        for (slot, offset) in [
+            (0, vertex_offset),
+            (3, vertex_offset + 16),
+            (8, vertex_offset + 16),
+        ] {
             context.set_vertex_attribute(VertexAttribute {
                 slot,
                 components: 4,
@@ -111,6 +145,11 @@ fn run() -> Result<(), Error> {
                 offset,
             })?;
         }
+        context.draw_arrays(Primitive::Triangles, 0, 3)?;
+        context.load_vertex_program(&textured_vertex)?;
+        context.load_fragment_program(&textured_fragment, Location::Local, textured_offset)?;
+        let texture = Texture::linear_argb8(Location::Local, texture_dest, 4, 4, TEX_PITCH)?;
+        context.bind_texture(0, &texture, &Sampler::default())?;
         context.draw_indexed(
             Primitive::Triangles,
             Location::Local,
@@ -126,19 +165,23 @@ fn run() -> Result<(), Error> {
     #[cfg(feature = "verify-framebuffer")]
     unsafe {
         let vram = config.local_address as usize as *const u8;
-        let center_offset = pitch * (u32::from(size.height) / 2) + u32::from(size.width / 2) * 4;
-        let corners = vram.cast::<u32>().read_volatile() & 0x00ff_ffff;
-        let center = vram
-            .add(center_offset as usize)
-            .cast::<u32>()
-            .read_volatile()
-            & 0x00ff_ffff;
+        let pixel = |x, y| {
+            vram.add((pitch * y + x * 4) as usize)
+                .cast::<u32>()
+                .read_volatile()
+                & 0x00ff_ffff
+        };
+        let (width, height) = (u32::from(size.width), u32::from(size.height));
+        let corner = pixel(0, 0);
+        let left = pixel(width / 4, height / 2);
+        let right = pixel(width * 3 / 4, height / 2);
         println!(
-            "RSX framebuffer readback: corner={:06x}, center={:06x}",
-            corners, center
+            "RSX framebuffer readback: corner={:06x}, left={:06x}, right={:06x}",
+            corner, left, right
         );
-        assert_eq!(corners, COLOR & 0x00ff_ffff);
-        assert_eq!(center, 0xff_0000);
+        assert_eq!(corner, COLOR & 0x00ff_ffff);
+        assert_eq!(left, 0xff_0000);
+        assert_eq!(right, TEXEL & 0x00ff_ffff);
     }
 
     // Let the first flip become visible before exiting the example.
