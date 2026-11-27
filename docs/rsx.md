@@ -39,10 +39,24 @@ python3 scripts/audit-rsx.py /path/to/target/ppu --ppu-bin "$PS3DEV/ppu/bin"
 
 The audit checks 70 public GCM signatures, 74 GCM function IDs, four
 video output function IDs, and 277 methods against the original SDK.
-The GCM export set was checked on CEX 4.93, DEX 4.81, and DECR 4.81.
 The 15 GCM records have matching PPU C and Rust layout checks.
 
-The `rsx-triangle` example passed in RPCS3 at 1280 × 720. With
+The Cargo SDK profiles also select the GCM imports. SDK 1.92 uses the
+`cellGcmSetFlip` import, and SDK 2.70 and later use
+`_cellGcmSetFlipCommand`. The import signatures and function IDs were
+checked against SDKs 1.92, 2.70, 3.70, 4.60, and 4.75. To audit only an
+older SDK's imports, add `--imports-only` with its `--sdk-abi` value.
+
+| Stock firmware | `sdk-192` GCM exports | `sdk-270` GCM exports | `sdk-370` GCM exports |
+| --- | ---: | ---: | ---: |
+| DECR 1.10 | 35 / 49 | 34 / 60 | 34 / 74 |
+| DECR 2.60 | 49 / 49 | 59 / 60 | 59 / 74 |
+| DECR 4.81 | 49 / 49 | 60 / 60 | 74 / 74 |
+| DEX 4.81 | 49 / 49 | 60 / 60 | 74 / 74 |
+| CEX 4.93 | 49 / 49 | 60 / 60 | 74 / 74 |
+
+The `rsx-triangle` example passed in RPCS3 at 1280 × 720 under all three
+Cargo profiles. With
 `verify-framebuffer` and **Write Color Buffers** enabled, it checks
 the clear color, two independent draw paths, GPU copies and scaling,
 swizzle output, a firmware FIFO refill, a user callback, and alternate

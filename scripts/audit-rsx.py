@@ -25,9 +25,11 @@ PROTOTYPES = re.compile(
 # These are required by the SDK's static init and presentation wrappers.
 WRAPPER_IMPORTS = {
     "_cellGcmInitBody",
+    "cellGcmSetPrepareFlip",
+}
+MODERN_FLIP = {
     "_cellGcmSetFlipCommand",
     "_cellGcmSetFlipCommandWithWaitLabel",
-    "cellGcmSetPrepareFlip",
 }
 
 
@@ -57,14 +59,19 @@ def sdk_argument(argument):
     return sdk_type(declaration)
 
 
-def check_imports(sdk, tool_dir):
+def check_imports(sdk, tool_dir, abi):
     common = runpy.run_path(str(ROOT / "scripts/audit-lv2.py"))
     manifest = tomllib.loads((ROOT / "ps3/sdk-imports.toml").read_text())["libraries"]
-    imports = {row["name"]: row for row in manifest["cellGcmSys"]["functions"]}
+    version = int(abi.removeprefix("sdk-"))
+    imports = {
+        row["name"]: row
+        for row in manifest["cellGcmSys"]["functions"]
+        if row.get("since_sdk", 0) <= version <= row.get("through_sdk", version)
+    }
     sdk_ids = common["sdk_stub_ids"](sdk / "lib/libgcm_sys_stub.a", tool_dir)
     rust = {
         name: common["rust_signature"](ret, args)
-        for name, args, ret in IMPORTS.findall((RSX / "raw.rs").read_text())
+        for name, args, ret in IMPORTS.findall(common["rust_source"](RSX / "raw.rs", abi))
     }
     sdk_header = sdk / "include/cell/gcm.h"
     signatures = {}
@@ -74,7 +81,8 @@ def check_imports(sdk, tool_dir):
                 sdk_type(result), tuple(map(sdk_argument, common["parameters"](args)))
             )
 
-    expected = signatures.keys() | WRAPPER_IMPORTS
+    flip = {"cellGcmSetFlip"} if version == 192 else MODERN_FLIP
+    expected = signatures.keys() | WRAPPER_IMPORTS | flip
     if expected != imports.keys() or expected != rust.keys():
         raise ValueError(
             f"GCM coverage differs: missing imports {sorted(expected - imports.keys())}, "
@@ -117,11 +125,15 @@ def check_methods(include):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("sdk_ppu", type=Path, help="SDK target/ppu directory")
+    parser.add_argument("--sdk-abi", choices=("sdk-192", "sdk-270", "sdk-370"), default="sdk-370")
+    parser.add_argument("--imports-only", action="store_true",
+                        help="skip the complete SDK 4.75 method catalogue comparison")
     parser.add_argument("--ppu-bin", type=Path, help="directory containing the GNU PPU binary tools")
     args = parser.parse_args()
     try:
-        check_imports(args.sdk_ppu, args.ppu_bin)
-        check_methods(args.sdk_ppu / "include")
+        check_imports(args.sdk_ppu, args.ppu_bin, args.sdk_abi)
+        if not args.imports_only:
+            check_methods(args.sdk_ppu / "include")
     except (OSError, KeyError, ValueError) as error:
         parser.exit(1, f"{error}\n")
 

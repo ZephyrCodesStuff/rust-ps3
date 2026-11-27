@@ -310,13 +310,16 @@ fn verify_tiling(context: &mut Context, arena: &mut ps3::rsx::LocalArena) -> Res
                 stencil_mask: 0xe7,
             },
         )?;
-        let info = raw::get_zcull_info();
-        if info.is_null() {
-            return Err(Error::InvalidContext);
+        #[cfg(feature = "sdk-370")]
+        {
+            let info = raw::get_zcull_info();
+            if info.is_null() {
+                return Err(Error::InvalidContext);
+            }
+            // The compare mode, reference and mask arrive via ELFv1 stack arguments.
+            let status = core::ptr::addr_of!((*info).status0).read_volatile();
+            assert_eq!(status >> 12, 0xe7ab5);
         }
-        // The compare mode, reference and mask arrive via ELFv1 stack arguments.
-        let status = core::ptr::addr_of!((*info).status0).read_volatile();
-        assert_eq!(status >> 12, 0xe7ab5);
         context.unbind_zcull(0)?;
     }
     Ok(())

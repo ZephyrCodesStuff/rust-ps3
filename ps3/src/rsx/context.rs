@@ -255,6 +255,7 @@ impl Context {
     /// The display buffer and label must both be available to the GPU, and
     /// the caller must uphold the ordering and lifetime requirements of
     /// both resources.
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     pub unsafe fn flip_with_wait_label(
         &mut self,
         id: u8,

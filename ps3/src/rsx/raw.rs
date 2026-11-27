@@ -11,10 +11,11 @@ use core::ffi::c_void;
 
 use crate::sys::raw::PpuFunctionDescriptor;
 
-use super::{
-    Config, ContextData, Control, DisplayInfo, NotifyData, OffsetTable, ReportData, TileInfo,
-    ZcullInfo,
-};
+use super::{Config, ContextData, Control, OffsetTable};
+#[cfg(feature = "sdk-370")]
+use super::{DisplayInfo, TileInfo, ZcullInfo};
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
+use super::{NotifyData, ReportData};
 
 extern "C" {
     #[link_name = "_cellGcmInitBody"]
@@ -24,8 +25,13 @@ extern "C" {
         io_size: u32,
         io_address: *const c_void,
     ) -> i32;
+    #[cfg(feature = "sdk-192")]
+    #[link_name = "cellGcmSetFlip"]
+    pub(crate) fn set_flip_command(context: *mut ContextData, id: u8) -> i32;
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     #[link_name = "_cellGcmSetFlipCommand"]
     pub(crate) fn set_flip_command(context: *mut ContextData, id: u8) -> i32;
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     #[link_name = "_cellGcmSetFlipCommandWithWaitLabel"]
     pub(crate) fn set_flip_command_with_wait_label(
         context: *mut ContextData,
@@ -52,12 +58,14 @@ extern "C" {
         s_ref: u32,
         s_mask: u32,
     ) -> i32;
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     #[link_name = "cellGcmDumpGraphicsError"]
     pub fn dump_graphics_error() -> i32;
     #[link_name = "cellGcmGetConfiguration"]
     pub fn get_configuration(config: *mut Config);
     #[link_name = "cellGcmGetControlRegister"]
     pub fn get_control_register() -> *mut Control;
+    #[cfg(feature = "sdk-370")]
     #[link_name = "cellGcmGetCurrentDisplayBufferId"]
     pub fn get_current_display_buffer_id(id: *mut u8) -> i32;
     #[link_name = "cellGcmGetCurrentField"]
@@ -68,6 +76,7 @@ extern "C" {
     pub fn get_default_segment_word_size() -> u32;
     #[link_name = "cellGcmGetDisplayBufferByFlipIndex"]
     pub fn get_display_buffer_by_flip_index(qid: u32) -> i32;
+    #[cfg(feature = "sdk-370")]
     #[link_name = "cellGcmGetDisplayInfo"]
     pub fn get_display_info() -> *const DisplayInfo;
     #[link_name = "cellGcmGetFlipStatus"]
@@ -78,42 +87,54 @@ extern "C" {
     pub fn get_last_flip_time() -> i64;
     #[link_name = "cellGcmGetLastSecondVTime"]
     pub fn get_last_second_v_time() -> i64;
+    #[cfg(feature = "sdk-370")]
     #[link_name = "cellGcmGetMaxIoMapSize"]
     pub fn get_max_io_map_size() -> u32;
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     #[link_name = "cellGcmGetNotifyDataAddress"]
     pub fn get_notify_data_address(index: u32) -> *mut NotifyData;
     #[link_name = "cellGcmGetOffsetTable"]
     pub fn get_offset_table(table: *mut OffsetTable);
     #[link_name = "cellGcmGetReport"]
     pub fn get_report(r#type: u32, index: u32) -> u32;
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     #[link_name = "cellGcmGetReportDataAddress"]
     pub fn get_report_data_address(index: u32) -> *mut ReportData;
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     #[link_name = "cellGcmGetReportDataAddressLocation"]
     pub fn get_report_data_address_location(index: u32, location: u32) -> *mut ReportData;
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     #[link_name = "cellGcmGetReportDataLocation"]
     pub fn get_report_data_location(index: u32, location: u32) -> u32;
+    #[cfg(feature = "sdk-370")]
     #[link_name = "cellGcmGetTileInfo"]
     pub fn get_tile_info() -> *const TileInfo;
     #[link_name = "cellGcmGetTiledPitchSize"]
     pub fn get_tiled_pitch_size(size: u32) -> u32;
     #[link_name = "cellGcmGetTimeStamp"]
     pub fn get_time_stamp(index: u32) -> u64;
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     #[link_name = "cellGcmGetTimeStampLocation"]
     pub fn get_time_stamp_location(index: u32, location: u32) -> u64;
     #[link_name = "cellGcmGetVBlankCount"]
     pub fn get_v_blank_count() -> u64;
+    #[cfg(feature = "sdk-370")]
     #[link_name = "cellGcmGetZcullInfo"]
     pub fn get_zcull_info() -> *const ZcullInfo;
+    #[cfg(feature = "sdk-370")]
     #[link_name = "cellGcmInitCursor"]
     pub fn init_cursor() -> i32;
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     #[link_name = "cellGcmInitDefaultFifoMode"]
     pub fn init_default_fifo_mode(mode: i32) -> i32;
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     #[link_name = "cellGcmInitSystemMode"]
     pub fn init_system_mode(mode: u64) -> i32;
     #[link_name = "cellGcmIoOffsetToAddress"]
     pub fn io_offset_to_address(io_offset: u32, address: *mut u32) -> i32;
     #[link_name = "cellGcmMapEaIoAddress"]
     pub fn map_ea_io_address(ea: *const c_void, io: u32, size: u32) -> i32;
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     #[link_name = "cellGcmMapEaIoAddressWithFlags"]
     pub fn map_ea_io_address_with_flags(
         ea: *const c_void,
@@ -121,20 +142,26 @@ extern "C" {
         size: u32,
         userflags: u32,
     ) -> i32;
+    #[cfg(feature = "sdk-370")]
     #[link_name = "cellGcmMapLocalMemory"]
     pub fn map_local_memory(address: *mut u32, size: *mut u32) -> i32;
     #[link_name = "cellGcmMapMainMemory"]
     pub fn map_main_memory(address: *const c_void, size: u32, offset: *mut u32) -> i32;
+    #[cfg(feature = "sdk-370")]
     #[link_name = "cellGcmReserveIoMapSize"]
     pub fn reserve_io_map_size(size: u32) -> i32;
     #[link_name = "cellGcmResetFlipStatus"]
     pub fn reset_flip_status();
+    #[cfg(feature = "sdk-370")]
     #[link_name = "cellGcmSetCursorDisable"]
     pub fn set_cursor_disable() -> i32;
+    #[cfg(feature = "sdk-370")]
     #[link_name = "cellGcmSetCursorEnable"]
     pub fn set_cursor_enable() -> i32;
+    #[cfg(feature = "sdk-370")]
     #[link_name = "cellGcmSetCursorImageOffset"]
     pub fn set_cursor_image_offset(offset: u32) -> i32;
+    #[cfg(feature = "sdk-370")]
     #[link_name = "cellGcmSetCursorPosition"]
     pub fn set_cursor_position(x: i32, y: i32) -> i32;
     #[link_name = "cellGcmSetDebugOutputLevel"]
@@ -146,6 +173,7 @@ extern "C" {
         buffer_size: u32,
         segment_size: u32,
     ) -> i32;
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
     #[link_name = "cellGcmSetDefaultFifoSize"]
     pub fn set_default_fifo_size(buffer_size: u32, segment_size: u32) -> i32;
     #[link_name = "cellGcmSetDisplayBuffer"]
@@ -223,8 +251,10 @@ extern "C" {
     pub fn unmap_ea_io_address(ea: *const c_void) -> i32;
     #[link_name = "cellGcmUnmapIoAddress"]
     pub fn unmap_io_address(io: u32) -> i32;
+    #[cfg(feature = "sdk-370")]
     #[link_name = "cellGcmUnreserveIoMapSize"]
     pub fn unreserve_io_map_size(size: u32) -> i32;
+    #[cfg(feature = "sdk-370")]
     #[link_name = "cellGcmUpdateCursor"]
     pub fn update_cursor() -> i32;
 }

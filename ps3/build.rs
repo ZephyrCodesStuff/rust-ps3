@@ -57,6 +57,8 @@ struct FunctionConfig {
     #[serde(default)]
     since_sdk: u16,
     #[serde(default)]
+    through_sdk: Option<u16>,
+    #[serde(default)]
     stack_words: u8,
 }
 
@@ -267,7 +269,9 @@ fn main() {
                     continue;
                 }
             }
-            library.functions.retain(|f| f.since_sdk <= sdk);
+            library
+                .functions
+                .retain(|f| f.since_sdk <= sdk && f.through_sdk.is_none_or(|last| sdk <= last));
             let configured =
                 config
                     .libraries
