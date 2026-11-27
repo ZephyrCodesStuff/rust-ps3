@@ -59,6 +59,7 @@ See `examples/` directory for sample programs (`examples/hello-world` and `examp
   - [x] GCM firmware imports, video output, and a framebuffer clear and flip
   - [x] Vertex and index buffers, shader upload, and triangle rendering
   - [x] Texture sampling and GPU memory copies
+  - [x] VRAM allocation, main-memory mapping, and GPU semaphore labels
 - [ ] `std` support
 - [ ] Automated self / `EBOOT.BIN` packaging
 

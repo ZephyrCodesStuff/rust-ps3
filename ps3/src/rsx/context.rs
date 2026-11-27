@@ -5,7 +5,7 @@ use crate::sys::syscalls::call_compact;
 
 use super::{raw, Config, ContextData, Control};
 
-const IO_ALIGN: usize = 1024 * 1024;
+pub(super) const IO_ALIGN: usize = 1024 * 1024;
 const MAX_METHOD_WORDS: usize = 0x7ff;
 const NON_INCREMENTING: u32 = 1 << 30;
 
@@ -18,6 +18,7 @@ pub enum Error {
     InvalidArgument,
     InvalidContext,
     CommandBufferFull,
+    OutOfMemory,
     Timeout,
 }
 

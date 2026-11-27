@@ -7,7 +7,6 @@ use super::{Context, Error, Method, Surface};
 const NOP: u16 = 0x0100;
 const REFERENCE: u16 = 0x0050;
 const SEMAPHORE_OFFSET: u16 = 0x0064;
-const SEMAPHORE_RELEASE: u16 = 0x006c;
 const COLOR_CLEAR: u16 = 0x1d90;
 const DEPTH_CLEAR: u16 = 0x1d8c;
 const CLEAR: u16 = 0x1d94;
@@ -127,23 +126,6 @@ impl Context {
         unsafe { self.write_words(&[&[packet(SEMAPHORE_OFFSET, 2), 0x10, 0]]) }
     }
 
-    /// Writes an RSX label from the command processor when this packet executes.
-    ///
-    /// # Safety
-    ///
-    /// The label index must be owned by the caller and safe to update
-    /// according to the application's synchronization protocol.
-    pub unsafe fn write_command_label(&mut self, index: u8, value: u32) -> Result<(), Error> {
-        unsafe {
-            self.write_words(&[&[
-                packet(SEMAPHORE_OFFSET, 1),
-                u32::from(index) << 4,
-                packet(SEMAPHORE_RELEASE, 1),
-                value,
-            ]])
-        }
-    }
-
     /// Appends a unique reference value and submits the FIFO. Waits at most
     /// `polls` iterations, sleeping 100 microseconds between observations.
     ///
@@ -165,5 +147,51 @@ impl Context {
             sys_timer_usleep(100);
         }
         Err(Error::Timeout)
+    }
+
+    /// Appends `words` no-operation words to the FIFO.
+    pub fn nop(&mut self, mut words: usize) -> Result<(), Error> {
+        const ZERO: [u32; 32] = [0; 32];
+        while words != 0 {
+            let count = words.min(ZERO.len());
+            unsafe { self.write_words(&[&ZERO[..count]])? };
+            words -= count;
+        }
+        Ok(())
+    }
+
+    /// Changes FIFO execution to a mapped command stream.
+    ///
+    /// # Safety
+    ///
+    /// `io_offset` must be a mapped I/O offset pointing at an aligned,
+    /// executable command stream.
+    pub unsafe fn jump(&mut self, io_offset: u32) -> Result<(), Error> {
+        if io_offset > 0x1fff_fffc || io_offset & 3 != 0 {
+            return Err(Error::InvalidArgument);
+        }
+        unsafe { self.write_words(&[&[0x2000_0000 | io_offset]]) }
+    }
+
+    /// Calls a mapped command stream, which must return to the caller.
+    ///
+    /// # Safety
+    ///
+    /// The target must be a valid I/O offset. Observe the RSX call-depth
+    /// limitation and keep the subroutine mapped until the FIFO resumes.
+    pub unsafe fn call(&mut self, io_offset: u32) -> Result<(), Error> {
+        if io_offset > 0x1fff_fffc || io_offset & 3 != 0 {
+            return Err(Error::InvalidArgument);
+        }
+        unsafe { self.write_words(&[&[io_offset | 2]]) }
+    }
+
+    /// Returns execution to the calling command stream.
+    ///
+    /// # Safety
+    ///
+    /// The FIFO must execute this command with an outstanding call.
+    pub unsafe fn return_from_call(&mut self) -> Result<(), Error> {
+        unsafe { self.write_words(&[&[0x0002_0000]]) }
     }
 }
