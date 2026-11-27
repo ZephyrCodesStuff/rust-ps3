@@ -162,7 +162,9 @@ ps3 = { version = "0.1", default-features = false, features = ["sdk-192"] }
 Select one feature across the dependency graph. The selection is made at
 compile time. Check the running firmware and process permissions before
 using an entry point. Some firmware revisions expose the two memory
-container selector pairs under different permissions.
+container selector pairs under different permissions. See the
+[firmware and PSL1GHT comparison](docs/lv2-compatibility.md) for the
+versions and evidence behind these differences.
 
 Public SDK helpers for memory mapping and timer scheduling are available
 under `ps3::sys`, alongside the compatibility helpers for process exit,
@@ -174,7 +176,9 @@ firmware calls for PRX management, PPU threads, lightweight synchronization,
 SPU images, memory pools and related system services. These functions use the
 running firmware's `sysPrxForUser` library. The build adds the SDK import IDs
 to the application's SPRX import table, which `moldier patch` finalizes.
-The selected ABI controls which symbols are imported.
+The selected ABI controls which symbols are imported. Enable `sdk-debug`
+to also expose `ps3::sys::sdk::debug` on firmware with the `sys_lv2dbg`
+library and the required debug permissions.
 
 To compare the public direct bindings with local SDK headers, run:
 
@@ -185,8 +189,9 @@ python3 scripts/audit-lv2.py --public-sdk-headers INCLUDE_DIR --sdk-abi sdk-370
 Add `--psl1ght-headers "$PS3DEV/ppu/include"` to compare inline selector
 coverage and argument counts with a local PSL1GHT installation. Pass
 `--lv2-stub-archive PATH_TO_LIBLV2_STUB_A --ppu-bin "$PS3DEV/ppu/bin"` to
-also compare the public library declarations and import IDs. The archive
-check uses Python 3.11 or later.
+also compare the public library declarations and import IDs. Pass
+`--lv2-debug-stub-archive PATH_TO_LIBLV2DBG_STUB_A` for the debug library.
+The archive checks use Python 3.11 or later.
 
 To build the smoke program with a PS3DEV GNU linker:
 
@@ -211,6 +216,9 @@ link-arg=sys_proc_prx_param` after it. Use
 Run `moldier patch` on the resulting ELF before booting it. This variant
 also checks the firmware thread wrappers, lightweight mutex and condition
 variable, memory pool and PRX lifecycle using the firmware's `libfiber.sprx`.
+Use `sdk-debug` in place of `sdk-imports` to try a thread status query.
+RPCS3 can resolve the debug import even when its implementation leaves the
+output record untouched.
 
 ## SPRX Dynamic Imports (`sprx.toml`)
 

@@ -475,6 +475,8 @@ unsafe fn sdk_imports() {
     sys_mempool_destroy(pool);
 
     prx();
+    #[cfg(feature = "sdk-debug")]
+    debug_query(thread_id);
 }
 
 #[cfg(feature = "sdk-imports")]
@@ -528,4 +530,22 @@ unsafe fn prx() {
         "SDK PRX stop",
     );
     check(sys_prx_unload_module(id, 0, null()) == 0, "SDK PRX unload");
+    #[cfg(feature = "sdk-370")]
+    check(sys::sys_prx_get_ppu_guid(id) == 0, "SDK unloaded PRX GUID");
+}
+
+#[cfg(feature = "sdk-debug")]
+unsafe fn debug_query(thread_id: u64) {
+    use ps3::sys::sdk::debug::{sys_dbg_get_ppu_thread_status, SysDbgPpuThreadStatus};
+
+    let mut status = SysDbgPpuThreadStatus(u32::MAX);
+    let result = sys_dbg_get_ppu_thread_status(thread_id, &mut status);
+    if result == 0 && status.0 != u32::MAX {
+        check(
+            status.0 <= SysDbgPpuThreadStatus::UNKNOWN.0,
+            "SDK debug thread status",
+        );
+    } else {
+        sys::sys_tty_write("SDK debug query returned without thread status\n");
+    }
 }

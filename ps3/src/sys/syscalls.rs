@@ -107,6 +107,8 @@ mod compat;
 mod mmapper;
 pub mod raw;
 
+#[cfg(feature = "sdk-370")]
+pub use compat::sys_prx_get_ppu_guid;
 pub use compat::{
     sys_interrupt_thread_establish, sys_ppu_thread_create, sys_prx_start_module_raw,
     sys_prx_stop_module, sys_timer_start_oneshot, sys_timer_start_periodic,

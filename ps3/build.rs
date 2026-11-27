@@ -41,6 +41,8 @@ struct LibraryConfig {
     #[serde(default = "default_module_id")]
     module_id: u16,
     #[serde(default)]
+    sdk_debug_only: bool,
+    #[serde(default)]
     functions: Vec<FunctionConfig>,
 }
 
@@ -231,7 +233,11 @@ fn main() {
             toml::from_str(include_str!("sdk-imports.toml")).expect("invalid built-in SDK imports");
         let sdk_370 = env::var_os("CARGO_FEATURE_SDK_370").is_some();
 
+        let sdk_debug = env::var_os("CARGO_FEATURE_SDK_DEBUG").is_some();
         for (name, mut library) in sdk.libraries {
+            if library.sdk_debug_only && !sdk_debug {
+                continue;
+            }
             library.functions.retain(|f| sdk_370 || !f.sdk_370_only);
             let configured =
                 config
@@ -239,6 +245,7 @@ fn main() {
                     .entry(name.clone())
                     .or_insert_with(|| LibraryConfig {
                         module_id: library.module_id,
+                        sdk_debug_only: false,
                         functions: Vec::new(),
                     });
             assert_eq!(
