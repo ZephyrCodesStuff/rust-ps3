@@ -104,9 +104,18 @@ macro_rules! define_syscall_actions {
 }
 
 mod compat;
+mod mmapper;
 pub mod raw;
 
-pub use compat::{sys_ppu_thread_create, sys_prx_start_module_raw, sys_prx_stop_module};
+pub use compat::{
+    sys_ppu_thread_create, sys_prx_start_module_raw, sys_prx_stop_module, sys_timer_start_oneshot,
+    sys_timer_start_periodic, sys_timer_start_periodic_absolute,
+};
+
+pub use mmapper::{
+    sys_mmapper_allocate_memory, sys_mmapper_allocate_memory_from_container,
+    sys_mmapper_free_memory, sys_mmapper_map_memory, sys_mmapper_unmap_memory,
+};
 
 define_syscalls! {
     /// Terminates the current process.

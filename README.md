@@ -164,8 +164,9 @@ compile time. Check the running firmware and process permissions before
 using an entry point. Some firmware revisions expose the two memory
 container selector pairs under different permissions.
 
-Compatibility helpers for process exit, thread creation and PRX start and
-stop live under `ps3::sys`. Use SDK library imports for Cell APIs such as file
+Public SDK helpers for memory mapping and timer scheduling are available
+under `ps3::sys`, alongside the compatibility helpers for process exit,
+thread creation and PRX start and stop. Use SDK library imports for Cell APIs such as file
 I/O and sockets. The previous raw filesystem traps and generic selector
 interface have been removed.
 
@@ -174,6 +175,9 @@ To compare the public direct bindings with local SDK headers, run:
 ```sh
 python3 scripts/audit-lv2.py --public-sdk-headers INCLUDE_DIR --sdk-abi sdk-370
 ```
+
+Add `--psl1ght-headers "$PS3DEV/ppu/include"` to compare inline selector
+coverage and argument counts with a local PSL1GHT installation.
 
 To build the smoke program with a PS3DEV GNU linker:
 
@@ -188,8 +192,8 @@ CARGO_ENCODED_RUSTFLAGS='' cargo -Z unstable-options -Z build-std=core,alloc \
 To build the 1.92 variant, add `--no-default-features --features sdk-192`
 before the `--`. Boot `target/powerpc64-sony-ps3/release/lv2-smoke.ELF` in
 RPCS3. The program prints `LV2 ABI smoke passed` after checking process and
-time calls, memory allocation and containers, event queues, semaphores,
-read/write locks, and thread creation and join.
+time calls, memory allocation, mapped memory and containers, event queues,
+timers, semaphores, read/write locks, and thread creation and join.
 
 ## SPRX Dynamic Imports (`sprx.toml`)
 

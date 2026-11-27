@@ -156,3 +156,33 @@ unsafe fn call_prx_entry(address: u64, a0: u64, a1: u64, a2: u64) -> i32 {
     }
     result as i32
 }
+
+/// Starts a one-shot LV2 timer at an absolute system time in microseconds.
+///
+/// # Safety
+///
+/// `timer_id` must identify a timer owned by the process. Its event queue
+/// and timer must remain valid for the duration of this call.
+pub unsafe fn sys_timer_start_oneshot(timer_id: u32, expiration_time: i64) -> i32 {
+    unsafe { raw::_sys_timer_start(timer_id, expiration_time, 0) }
+}
+
+/// Starts a periodic LV2 timer with a period in microseconds.
+///
+/// # Safety
+///
+/// `timer_id` must identify a timer owned by the process. Its event queue
+/// and timer must remain valid for the duration of this call.
+pub unsafe fn sys_timer_start_periodic(timer_id: u32, period: u64) -> i32 {
+    unsafe { raw::_sys_timer_start(timer_id, 0, period) }
+}
+
+/// Starts a periodic LV2 timer relative to an absolute base time in microseconds.
+///
+/// # Safety
+///
+/// `timer_id` must identify a timer owned by the process. Its event queue
+/// and timer must remain valid for the duration of this call.
+pub unsafe fn sys_timer_start_periodic_absolute(timer_id: u32, base_time: i64, period: u64) -> i32 {
+    unsafe { raw::_sys_timer_start(timer_id, base_time, period) }
+}

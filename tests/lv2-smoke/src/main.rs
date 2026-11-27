@@ -62,7 +62,9 @@ extern "C" fn start() -> ! {
         );
 
         memory();
+        mmapper();
         events();
+        timers();
         synchronization();
         threads();
     }
@@ -116,6 +118,59 @@ unsafe fn memory() {
     );
 }
 
+unsafe fn mmapper() {
+    let page_size = SYS_MEMORY_PAGE_SIZE_64K;
+    let mut addr = 0;
+    check(
+        sys_mmapper_allocate_address(0x1000_0000, page_size, 0x1000_0000, &mut addr) == 0,
+        "mmapper reserve",
+    );
+    let mut mem_id = 0;
+    check(
+        sys::sys_mmapper_allocate_memory(0x10000, page_size, &mut mem_id) == 0,
+        "mmapper allocate",
+    );
+    check(
+        sys::sys_mmapper_map_memory(addr, mem_id, SYS_MEMORY_ATTR_READ_WRITE) == 0,
+        "mmapper map",
+    );
+    let word = addr as usize as *mut u32;
+    word.write_volatile(0x0123_4567);
+    check(
+        word.read_volatile() == 0x0123_4567,
+        "mmapper read and write",
+    );
+    let mut unmapped = 0;
+    check(
+        sys::sys_mmapper_unmap_memory(addr, &mut unmapped) == 0 && unmapped == mem_id,
+        "mmapper unmap",
+    );
+    check(
+        sys::sys_mmapper_free_memory(mem_id) == 0,
+        "mmapper free memory",
+    );
+    check(sys_mmapper_free_address(addr) == 0, "mmapper free address");
+
+    let mut container = 0;
+    check(
+        sys_memory_container_create(&mut container, 0x100000) == 0,
+        "mmapper container create",
+    );
+    check(
+        sys::sys_mmapper_allocate_memory_from_container(0x10000, container, page_size, &mut mem_id)
+            == 0,
+        "mmapper allocate from container",
+    );
+    check(
+        sys::sys_mmapper_free_memory(mem_id) == 0,
+        "mmapper free from container",
+    );
+    check(
+        sys_memory_container_destroy(container) == 0,
+        "mmapper container destroy",
+    );
+}
+
 unsafe fn events() {
     let attr = SysEventQueueAttribute {
         protocol: SYS_SYNC_FIFO,
@@ -164,6 +219,64 @@ unsafe fn events() {
     check(
         sys_event_queue_destroy(queue, 0) == 0,
         "event queue destroy",
+    );
+}
+
+unsafe fn timers() {
+    let attr = SysEventQueueAttribute {
+        protocol: SYS_SYNC_FIFO,
+        kind: SYS_PPU_QUEUE,
+        name: *b"lv2-time",
+    };
+    let mut queue = 0;
+    check(
+        sys_event_queue_create(&mut queue, &attr, SYS_EVENT_QUEUE_LOCAL, 4) == 0,
+        "timer queue create",
+    );
+    let mut timer = 0;
+    check(sys_timer_create(&mut timer) == 0, "timer create");
+    check(
+        sys_timer_connect_event_queue(timer, queue, 7, 8, 9) == 0,
+        "timer connect",
+    );
+
+    let now = sys::sys_time_get_system_time() as i64;
+    check(
+        sys::sys_timer_start_oneshot(timer, now + 20_000) == 0,
+        "timer oneshot",
+    );
+    let mut event = SysEvent::default();
+    check(
+        sys_event_queue_receive(queue, &mut event, 1_000_000) == 0
+            && (event.source, event.data1, event.data2) == (7, 8, 9),
+        "timer event",
+    );
+
+    let mut info = SysTimerInformation::default();
+    check(
+        sys::sys_timer_start_periodic(timer, 1_000_000) == 0
+            && sys_timer_get_information(timer, &mut info) == 0
+            && info.period == 1_000_000,
+        "timer periodic",
+    );
+    check(sys_timer_stop(timer) == 0, "timer stop");
+    let base_time = sys::sys_time_get_system_time() as i64 + 1_000_000;
+    check(
+        sys::sys_timer_start_periodic_absolute(timer, base_time, 2_000_000) == 0
+            && sys_timer_get_information(timer, &mut info) == 0
+            && info.next_expire == base_time + 2_000_000
+            && info.period == 2_000_000,
+        "timer periodic absolute",
+    );
+    check(sys_timer_stop(timer) == 0, "timer absolute stop");
+    check(
+        sys_timer_disconnect_event_queue(timer) == 0,
+        "timer disconnect",
+    );
+    check(sys_timer_destroy(timer) == 0, "timer destroy");
+    check(
+        sys_event_queue_destroy(queue, 0) == 0,
+        "timer queue destroy",
     );
 }
 
