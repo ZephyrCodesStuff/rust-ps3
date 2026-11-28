@@ -560,6 +560,64 @@ impl Context {
         Ok(())
     }
 
+    /// Reserves an aligned payload plus its surrounding command words, then
+    /// commits the cursor only if `fill` succeeds.
+    ///
+    /// The payload starts at a 16-byte aligned FIFO address. Up to three NOP
+    /// words are inserted between `leading_words` and `prefix_words`; padding
+    /// is calculated from the address returned after any normal FIFO refill.
+    /// The reservation includes the worst-case padding, while the cursor
+    /// advances only over the actual NOPs and supplied words. All committed
+    /// words are zero-initialized before `fill`; an error or unwinding panic
+    /// leaves this command stream uncommitted, though scratch bytes beyond the
+    /// cursor can be observed by memory inspectors. Any refill submission
+    /// before `fill` is not rolled back.
+    ///
+    /// # Safety
+    /// The completed command words must form valid RSX operations, and any
+    /// referenced resources must remain valid until execution completes.
+    pub(crate) unsafe fn write_aligned_words_with_payload(
+        &mut self,
+        leading_words: usize,
+        prefix_words: usize,
+        payload_words: usize,
+        suffix_words: usize,
+        fill: impl FnOnce(&mut [u32], &mut [u32], &mut [u32], &mut [u32]) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        let body_words = leading_words
+            .checked_add(prefix_words)
+            .and_then(|words| words.checked_add(payload_words))
+            .and_then(|words| words.checked_add(suffix_words))
+            .ok_or(Error::InvalidArgument)?;
+        let reserve_words = body_words.checked_add(3).ok_or(Error::InvalidArgument)?;
+        let address = self.reserve(reserve_words)? as usize as *mut u32;
+        let before_payload_words = leading_words
+            .checked_add(prefix_words)
+            .ok_or(Error::InvalidArgument)?;
+        let prefix_bytes = before_payload_words
+            .checked_mul(core::mem::size_of::<u32>())
+            .ok_or(Error::InvalidArgument)?;
+        let payload_address = (address as usize)
+            .checked_add(prefix_bytes)
+            .ok_or(Error::InvalidArgument)?;
+        let misalignment = payload_address & 15;
+        let padding_words = ((16 - misalignment) & 15) / core::mem::size_of::<u32>();
+        let total_words = padding_words + body_words;
+
+        unsafe { address.write_bytes(0, total_words) };
+        let words = unsafe { core::slice::from_raw_parts_mut(address, total_words) };
+        let leading_end = leading_words;
+        let (leading, after_leading) = words.split_at_mut(leading_end);
+        let (_, after_nops) = after_leading.split_at_mut(padding_words);
+        let (prefix, after_prefix) = after_nops.split_at_mut(prefix_words);
+        let (payload, suffix) = after_prefix.split_at_mut(payload_words);
+        debug_assert_eq!(suffix.len(), suffix_words);
+        fill(leading, prefix, payload, suffix)?;
+
+        unsafe { (*self.as_raw()).current = address.add(total_words) as usize as u32 };
+        Ok(())
+    }
+
     /// Writes a raw method packet. The caller specifies whether the RSX
     /// should advance the method address after each word.
     ///

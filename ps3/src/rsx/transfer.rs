@@ -510,6 +510,42 @@ impl Context {
         word_count: usize,
         mut fill: impl FnMut(&mut [u32]) -> Result<(), Error>,
     ) -> Result<(), Error> {
+        unsafe { self.inline_transfer_blocks(location, offset, word_count, false, &mut fill) }
+    }
+
+    /// Emits 16-byte-aligned generated words into inline-transfer payloads.
+    ///
+    /// `word_count` must be a multiple of four, matching the Cell GCM aligned
+    /// pointer contract. The callback runs once per block of at most 512
+    /// words, and each block payload begins at a 16-byte aligned FIFO address.
+    /// Padding NOPs are computed after any FIFO refill. If a later callback
+    /// fails, earlier blocks remain queued while the current block is not
+    /// committed.
+    ///
+    /// # Safety
+    /// The destination must remain mapped and cover the full write. Order
+    /// concurrent CPU or GPU accesses to that range around the transfer.
+    pub unsafe fn inline_transfer_aligned_with(
+        &mut self,
+        location: Location,
+        offset: u32,
+        word_count: usize,
+        mut fill: impl FnMut(&mut [u32]) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        if word_count % 4 != 0 {
+            return Err(Error::InvalidArgument);
+        }
+        unsafe { self.inline_transfer_blocks(location, offset, word_count, true, &mut fill) }
+    }
+
+    unsafe fn inline_transfer_blocks(
+        &mut self,
+        location: Location,
+        offset: u32,
+        word_count: usize,
+        aligned: bool,
+        fill: &mut impl FnMut(&mut [u32]) -> Result<(), Error>,
+    ) -> Result<(), Error> {
         if word_count == 0 {
             return Ok(());
         }
@@ -522,14 +558,32 @@ impl Context {
             let padding = count % 2;
             let payload_words = count + padding;
             let setup = inline_transfer_setup(location, destination, count);
-            let total_words = setup.len() + 1 + payload_words;
-            unsafe {
-                self.write_words_with_payload(total_words, |packet| {
-                    packet[..setup.len()].copy_from_slice(&setup);
-                    packet[setup.len()] = nv308a::COLOR.header(payload_words, true);
-                    let payload_start = setup.len() + 1;
-                    fill(&mut packet[payload_start..payload_start + count])
-                })?;
+            if aligned {
+                let mut prefix = [0; 12];
+                prefix[..setup.len()].copy_from_slice(&setup);
+                prefix[setup.len()] = nv308a::COLOR.header(payload_words, true);
+                unsafe {
+                    self.write_aligned_words_with_payload(
+                        0,
+                        prefix.len(),
+                        count,
+                        0,
+                        |_, packet_prefix, payload, _| {
+                            packet_prefix.copy_from_slice(&prefix);
+                            fill(payload)
+                        },
+                    )?;
+                }
+            } else {
+                let total_words = setup.len() + 1 + payload_words;
+                unsafe {
+                    self.write_words_with_payload(total_words, |packet| {
+                        packet[..setup.len()].copy_from_slice(&setup);
+                        packet[setup.len()] = nv308a::COLOR.header(payload_words, true);
+                        let payload_start = setup.len() + 1;
+                        fill(&mut packet[payload_start..payload_start + count])
+                    })?;
+                }
             }
             remaining -= count;
             if remaining != 0 {

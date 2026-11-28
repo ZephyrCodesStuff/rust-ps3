@@ -291,6 +291,55 @@ impl Context {
         }
     }
 
+    /// Fills one 16-byte-aligned packet of consecutive vertex constants
+    /// (`c0`–`c467`) in place. `count` may be 1 through 8; zero is a no-op
+    /// and does not call `fill`.
+    ///
+    /// The callback receives exactly `count` writable `[x, y, z, w]`
+    /// registers backed by a 16-byte-aligned command payload.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidArgument`] if `count` exceeds eight or the
+    /// requested register range extends past `c467`.
+    pub fn set_vertex_constants_aligned_with(
+        &mut self,
+        start: u16,
+        count: usize,
+        fill: impl FnOnce(&mut [[f32; 4]]) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        if count > 8
+            || usize::from(start)
+                .checked_add(count)
+                .is_none_or(|end| end > 468)
+        {
+            return Err(Error::InvalidArgument);
+        }
+        if count == 0 {
+            return Ok(());
+        }
+
+        let payload_words = count * 4;
+        unsafe {
+            self.write_aligned_words_with_payload(
+                0,
+                2,
+                payload_words,
+                0,
+                |_, prefix, payload, _| {
+                    prefix[0] = super::methods::nv4097::SET_TRANSFORM_CONSTANT_LOAD
+                        .header(payload_words + 1, true);
+                    prefix[1] = u32::from(start);
+                    let registers = core::slice::from_raw_parts_mut(
+                        payload.as_mut_ptr().cast::<[f32; 4]>(),
+                        count,
+                    );
+                    fill(registers)
+                },
+            )
+        }
+    }
+
     pub(super) unsafe fn emit_fragment_config(
         &mut self,
         config: &cgb::FragmentConfiguration,

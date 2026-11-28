@@ -444,6 +444,71 @@ impl Context {
         }
     }
 
+    /// Reserves a 16-byte-aligned inline array payload, matching GCM's
+    /// `SetDrawInlineArrayAlignedPointer` count and alignment rules.
+    ///
+    /// `word_count` counts 32-bit words and must be a multiple of four. The
+    /// payload is limited to one RSX method packet.
+    ///
+    /// # Safety
+    /// The words written by `fill` must match the active vertex formats and
+    /// encode a whole number of vertices.
+    pub unsafe fn draw_inline_aligned_with(
+        &mut self,
+        primitive: Primitive,
+        word_count: usize,
+        fill: impl FnOnce(&mut [u32]) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        unsafe {
+            self.draw_inline_aligned_payload_with(primitive, nv4097::INLINE_ARRAY, word_count, fill)
+        }
+    }
+
+    /// Reserves a 16-byte-aligned 32-bit inline index payload, matching
+    /// GCM's `SetDrawInlineIndexArray32AlignedPointer` restrictions.
+    /// `index_count` must be a multiple of four and fit one RSX method packet.
+    ///
+    /// # Safety
+    /// Every index written by `fill` must refer to live bound vertex data.
+    pub unsafe fn draw_inline_indices_aligned_with(
+        &mut self,
+        primitive: Primitive,
+        index_count: usize,
+        fill: impl FnOnce(&mut [u32]) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        unsafe {
+            self.draw_inline_aligned_payload_with(
+                primitive,
+                nv4097::ARRAY_ELEMENT32,
+                index_count,
+                fill,
+            )
+        }
+    }
+
+    /// Reserves a 16-byte-aligned packed 16-bit index payload, matching
+    /// GCM's `SetDrawInlineIndexArray16AlignedPointer` restrictions. The
+    /// count is in 32-bit payload words, each holding two indices with the
+    /// first index in its low half; it must be a multiple of four.
+    ///
+    /// # Safety
+    /// Every index encoded by `fill` must refer to live bound vertex data.
+    pub unsafe fn draw_inline_indices_u16_words_aligned_with(
+        &mut self,
+        primitive: Primitive,
+        packed_word_count: usize,
+        fill: impl FnOnce(&mut [u32]) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        unsafe {
+            self.draw_inline_aligned_payload_with(
+                primitive,
+                nv4097::ARRAY_ELEMENT16,
+                packed_word_count,
+                fill,
+            )
+        }
+    }
+
     unsafe fn draw_inline_payload_with(
         &mut self,
         primitive: Primitive,
@@ -474,6 +539,45 @@ impl Context {
                 stream[8 + payload_words] = 0;
                 Ok(())
             })
+        }
+    }
+
+    unsafe fn draw_inline_aligned_payload_with(
+        &mut self,
+        primitive: Primitive,
+        method: Method,
+        payload_words: usize,
+        fill: impl FnOnce(&mut [u32]) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        if payload_words == 0 {
+            return Ok(());
+        }
+        if payload_words > MAX_METHOD_COUNT || payload_words % 4 != 0 {
+            return Err(Error::InvalidArgument);
+        }
+
+        // GCM's aligned pointer helper requires the payload count to be a
+        // multiple of four and emits NOP padding after begin and before the
+        // method header so the data payload begins at a 16-byte boundary.
+        unsafe {
+            self.write_aligned_words_with_payload(
+                6,
+                1,
+                payload_words,
+                2,
+                |leading, prefix, payload, suffix| {
+                    fill(payload)?;
+                    leading[0] = Method::new(INVALIDATE_VERTEX_CACHE)
+                        .unwrap()
+                        .header(3, false);
+                    leading[4] = packet(BEGIN_END, 1);
+                    leading[5] = primitive as u32;
+                    prefix[0] = method.header(payload_words, false);
+                    suffix[0] = packet(BEGIN_END, 1);
+                    suffix[1] = 0;
+                    Ok(())
+                },
+            )
         }
     }
 
