@@ -135,5 +135,13 @@ would overflow the u32 address range is rejected. RPCS3 readback and public
 PS3 hardware results confirm that the line length counts copied bytes and each
 format selects a byte step. [NV0039 hardware results](https://github.com/RPCS3/rpcs3/pull/19190)
 
+A vertex texture smoke used the original SDK 4.75 `fw_vertex_texture` Cg
+shader pair compiled for RSX. In separate RPCS3 Legacy Recompiler runs, an
+RGBA32F vertex texture produced the expected framebuffer center values
+`0xff0000` and `0x00ff00`. A same-target rebind retained the old red pixel.
+The async shader interpreter reported that it does not support vertex
+textures. Same-target rebinding and R32F sampling still need runtime
+verification.
+
 A PPU packet check in RPCS3 verified the independent Cell GCM blend factor,
 equation, and constant setters.
