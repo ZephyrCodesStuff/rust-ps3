@@ -218,6 +218,35 @@ pub enum LogicOp {
 }
 
 impl Context {
+    /// Sets multisample antialiasing and packs the four SDK control fields.
+    ///
+    /// The 16-bit sample mask occupies bits 16–31; the three flags occupy bits 0, 4,
+    /// and 8 respectively, matching `SetAntiAliasingControl` in the SDK.
+    pub fn set_antialiasing(
+        &mut self,
+        enabled: bool,
+        alpha_to_coverage: bool,
+        alpha_to_one: bool,
+        sample_mask: u16,
+    ) -> Result<(), Error> {
+        let control = u32::from(enabled)
+            | (u32::from(alpha_to_coverage) << 4)
+            | (u32::from(alpha_to_one) << 8)
+            | (u32::from(sample_mask) << 16);
+        unsafe { self.write_method(nv4097::SET_ANTI_ALIASING_CONTROL, true, &[control]) }
+    }
+
+    /// Enables or disables two-sided lighting without changing other lighting state.
+    pub fn set_two_sided_lighting_enabled(&mut self, enabled: bool) -> Result<(), Error> {
+        unsafe {
+            self.write_method(
+                nv4097::SET_TWO_SIDE_LIGHT_EN,
+                true,
+                &[u32::from(enabled)],
+            )
+        }
+    }
+
     /// Sets the width in eighths of a pixel and selects line smoothing.
     pub fn set_line_rasterization(
         &mut self,

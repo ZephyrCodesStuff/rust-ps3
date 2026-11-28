@@ -73,6 +73,46 @@ fn patch_embedded(offsets: &[u8], microcode: &mut [u8], value: &[f32]) -> Result
 }
 
 impl Context {
+    /// Selects the instruction slot at which the vertex program begins.
+    pub fn set_vertex_program_start_slot(&mut self, start_slot: u32) -> Result<(), Error> {
+        if start_slot >= 512 {
+            return Err(Error::InvalidArgument);
+        }
+        unsafe { self.write_words(&[&[packet(0x1ea0, 1), start_slot]]) }
+    }
+
+    /// Selects the instruction slot to receive subsequent vertex microcode.
+    pub fn set_vertex_program_load_slot(&mut self, load_slot: u32) -> Result<(), Error> {
+        if load_slot >= 512 {
+            return Err(Error::InvalidArgument);
+        }
+        unsafe { self.write_words(&[&[packet(0x1e9c, 1), load_slot]]) }
+    }
+
+    /// Sets the vertex shader's 16-bit input attribute mask.
+    pub fn set_vertex_attribute_input_mask(&mut self, mask: u16) -> Result<(), Error> {
+        unsafe { self.write_words(&[&[packet(0x1ff0, 1), u32::from(mask)]]) }
+    }
+
+    /// Sets the vertex shader's 32-bit output attribute mask.
+    pub fn set_vertex_attribute_output_mask(&mut self, mask: u32) -> Result<(), Error> {
+        unsafe { self.write_words(&[&[packet(0x1ff4, 1), mask]]) }
+    }
+
+    /// Selects the transform timeout register budget for a vertex program.
+    /// The RSX supports a 32-register budget through 32 used registers and a
+    /// 48-register budget above that threshold, as in Cell GCM.
+    pub fn set_vertex_program_register_count(&mut self, register_count: u32) -> Result<(), Error> {
+        let registers = if register_count <= 32 { 32 } else { 48 };
+        let timeout = 0x0000_ffff | (registers << 16);
+        unsafe { self.write_words(&[&[packet(0x1ef8, 1), timeout]]) }
+    }
+
+    /// Enables or disables fragment shader gamma conversion.
+    pub fn set_fragment_program_gamma_enable(&mut self, enable: bool) -> Result<(), Error> {
+        unsafe { self.write_words(&[&[packet(0x1fec, 1), u32::from(enable)]]) }
+    }
+
     /// Refreshes the microcode address after queued fragment constant writes.
     ///
     /// # Safety
@@ -118,6 +158,13 @@ impl Context {
         start: u32,
         code: &[u8],
     ) -> Result<(), Error> {
+        if code.is_empty() || code.len() % INSTRUCTION_SIZE != 0 {
+            return Err(Error::InvalidArgument);
+        }
+        let count = code.len() / INSTRUCTION_SIZE;
+        if start >= 512 || count > 512 - start as usize {
+            return Err(Error::InvalidArgument);
+        }
         unsafe { self.write_words(&[&[packet(0x1e9c, 2), start, start]])? };
         let mut words = [0; 32];
         for instructions in code.chunks(128) {
