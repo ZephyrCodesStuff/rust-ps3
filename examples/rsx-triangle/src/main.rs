@@ -8,13 +8,14 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use ps3::println;
 use ps3::rsx::{
     video, Buffer, ClearMask, Compare, Context, Error, FlipMode, IoBuffer, LabelStage, Location,
-    CullFace, FaceWinding, MagFilter, Method, MinFilter, Primitive, Rect, Sampler, ScaleTarget,
-    Swapchain, Texture,
+    MagFilter, Method, MinFilter, Primitive, Rect, Sampler, ScaleTarget, Swapchain, Texture,
     TransferMemory, TransferScale, TransferSurface, VertexAttribute, VertexType, Viewport,
     WrapMode,
 };
 #[cfg(feature = "verify-framebuffer")]
-use ps3::rsx::{Event, EventCallback, ImageCopyTarget, ImagePixelSize, TransferDataFormat};
+use ps3::rsx::{
+    CullFace, Event, EventCallback, FaceWinding, ImageCopyTarget, ImagePixelSize, TransferDataFormat,
+};
 use ps3::sys::sys_timer_usleep;
 
 const MIB: usize = 1024 * 1024;
