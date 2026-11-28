@@ -345,6 +345,26 @@ impl Texture {
         )
     }
 
+    /// Describes one level of linear A1R5G5B5 data with normalized coordinates.
+    /// `pitch` is measured in bytes and must hold one row of 16-bit texels.
+    pub fn linear_argb1555(
+        location: Location,
+        offset: u32,
+        width: u16,
+        height: u16,
+        pitch: u32,
+    ) -> Result<Self, Error> {
+        Self::linear_2d(
+            location,
+            offset,
+            width,
+            height,
+            pitch,
+            TextureFormat::A1R5G5B5,
+            2,
+        )
+    }
+
     /// Describes one level of linear, normalized-coordinate vertex `f32` data.
     ///
     /// Vertex textures support either one channel (`X32_FLOAT`) or four

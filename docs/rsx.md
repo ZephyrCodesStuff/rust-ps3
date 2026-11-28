@@ -209,10 +209,11 @@ probes without establishing their root cause.
 The fragment control FIFO check confirmed the TXP toggle, minimum register
 count, and rejection of counts above 48.
 
-The framebuffer example uploads big-endian RGB565 words and samples the
-texture directly in a fragment program. A red texel (`0xf800`) produces
-`0xff0000` in the framebuffer. A separate same-format RGB565 transfer
-preserved the source words.
+On the SDK 1.92, 2.70, and 3.70 profiles, the framebuffer example samples
+big-endian RGB565 and ARGB1555 textures in a fragment program. An RGB565
+red texel (`0xf800`) produces opaque red (`0xffff0000`). An ARGB1555 green
+texel with a zero alpha bit (`0x03e0`) produces `0x0000ff00`. A separate
+same-format RGB565 transfer preserved the source words.
 
 An SDK packet review confirmed the RGB565 transfer command words. In RPCS3's
 forced CPU-blit path, RGB565-to-ARGB8888 conversion read big-endian red,
