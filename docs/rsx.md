@@ -171,6 +171,13 @@ A PPU packet check in RPCS3 verified the independent Cell GCM blend factor,
 equation, and constant setters, as well as independent stencil and culling
 state. A separate FIFO check verified direct vertex constant uploads, including
 eight-register packet splitting and rejection of out-of-range register writes.
+The typed `set_vertex_constants_with` fill was checked against its FIFO packet,
+and its uploaded values were exercised by rendering. FIFO checks also covered
+the three inline draw fill variants; rendering verified inline `u32` vertex
+words, `u32` indices, and packed `u16` index words. Inline transfer fills
+passed three-word and 513-word DMA readbacks with padding guards. When the
+second callback returned an error, the first 512 words still transferred
+and the destination at the failed block was preserved.
 
 The `verify-framebuffer` example tested four face-culling settings on the
 same back buffer. Changing the culled face or front-face winding switched
@@ -180,15 +187,12 @@ SDK profiles passed in RPCS3.
 The vertex branch condition word and the per-slot vertex frequency modulo
 mask also matched their Cell GCM FIFO packets.
 
-Standalone stencil runs passed the `Always` and `Never` cases, and the `Equal`
-case with matching stencil value `0x5a` and reference `0x5a`. The mismatching
-case (`0x5a` against reference `0x5b`) preserved the clear-color baseline.
-These are separate standalone results. An earlier multi-draw probe had an
-`Always`/`Replace` control, but after a color-only clear both matching and
-mismatching `Equal` draws left the center at the clear color; that multi-draw
-result remains unresolved. A no-clear follow-up preserved the original texel
-after rebinding a different texture, including during an `Always` control.
-That run did not isolate an `Equal` comparison failure.
+The tracked `verify-framebuffer` example now tests stencil in four separate
+scissored strips after a seed pass. On all three SDK profiles, `Never` and
+`Equal` with reference `0x5b` against stencil value `0x5a` retained the clear
+color (`0x3578c8`); `Always` and matching `Equal` produced the sampled texel
+(`0x00dc00`). These results supersede the earlier inconclusive multi-draw
+probes without establishing their root cause.
 
 The fragment control FIFO check confirmed the TXP toggle, minimum register
 count, and rejection of counts above 48.
