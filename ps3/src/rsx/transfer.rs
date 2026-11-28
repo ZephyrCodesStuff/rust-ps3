@@ -10,6 +10,18 @@ const LINEAR_SURFACE: u32 = 0x3133_71c3;
 const SWIZZLED_SURFACE: u32 = 0x3133_7a73;
 const BLIT_BLOCK: u32 = 1024;
 
+/// Byte step selector accepted by the Cell GCM M2MF transfer format method.
+///
+/// NV0039 copies one byte per column, advancing this many bytes between
+/// selected input or output bytes.
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TransferDataFormat {
+    Bytes1 = 1,
+    Bytes2 = 2,
+    Bytes4 = 4,
+}
+
 /// Storage width of each pixel in an image copy.
 #[derive(Clone, Copy, Debug)]
 pub enum ImagePixelSize {
@@ -519,6 +531,79 @@ impl Context {
                 }
                 row += block_rows;
             }
+        }
+        Ok(())
+    }
+
+    /// Copies rows through the Cell GCM format aware M2MF path.
+    ///
+    /// `column_count` is the number of bytes copied per row. Each format
+    /// selects the byte step on its side; pitches remain signed byte
+    /// distances between rows, as with `copy_rows`.
+    ///
+    /// # Safety
+    ///
+    /// Source and destination must be live, nonoverlapping GPU allocations
+    /// covering the format-selected byte spans on every row at the supplied
+    /// pitches. For `n` columns and byte step `s`, a row touches
+    /// `(n - 1) * s + 1` bytes. Synchronize CPU and GPU accesses around the
+    /// transfer.
+    pub unsafe fn copy_rows_formatted(
+        &mut self,
+        source: TransferMemory,
+        destination: TransferMemory,
+        column_count: u32,
+        line_count: u32,
+        input_format: TransferDataFormat,
+        output_format: TransferDataFormat,
+    ) -> Result<(), Error> {
+        if line_count == 0 || column_count == 0 {
+            return Ok(());
+        }
+        if column_count > MAX_ROW_BYTES
+            || line_count > MAX_ROWS
+            || !i16::try_from(source.pitch).is_ok()
+            || !i16::try_from(destination.pitch).is_ok()
+        {
+            return Err(Error::InvalidArgument);
+        }
+
+        let row_span = |format: TransferDataFormat| {
+            (column_count - 1)
+                .checked_mul(u32::from(format as u8))
+                .and_then(|last_byte| last_byte.checked_add(1))
+                .ok_or(Error::InvalidArgument)
+        };
+        let input_span = row_span(input_format)?;
+        let output_span = row_span(output_format)?;
+        if !source.valid(input_span, line_count) || !destination.valid(output_span, line_count) {
+            return Err(Error::InvalidArgument);
+        }
+
+        unsafe {
+            self.write_words(&[
+                &[
+                    packet(MEMORY_TO_MEMORY | 0x0184, 2),
+                    DMA_LOCAL + source.location as u32,
+                    DMA_LOCAL + destination.location as u32,
+                ],
+                &[
+                    packet(MEMORY_TO_MEMORY | 0x0314, 5),
+                    source.pitch as u32,
+                    destination.pitch as u32,
+                    column_count,
+                    line_count,
+                    (u32::from(output_format as u8) << 8) | u32::from(input_format as u8),
+                    packet(MEMORY_TO_MEMORY | 0x030c, 1),
+                    source.offset,
+                    packet(MEMORY_TO_MEMORY | 0x0310, 1),
+                    destination.offset,
+                    packet(MEMORY_TO_MEMORY | 0x0328, 1),
+                    0,
+                    packet(MEMORY_TO_MEMORY | 0x0310, 1),
+                    0,
+                ],
+            ])?;
         }
         Ok(())
     }
