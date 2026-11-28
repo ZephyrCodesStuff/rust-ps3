@@ -13,25 +13,29 @@ use crate::rsx::{Context, Error, Location};
 
 const PARAMETER_BYTES: usize = 48;
 const CG_CONSTANT: u32 = 4103;
-// Values from Cell SDK 3.70's Cg/NV/cg_datatypes.h (CG_TYPE_START_ENUM=1024).
-const CG_FLOAT: u32 = 1044;
-const CG_FLOAT1: u32 = 1090;
-const CG_FLOAT2: u32 = 1045;
-const CG_FLOAT3: u32 = 1046;
-const CG_FLOAT4: u32 = 1047;
-const CG_FLOAT3X3: u32 = 1058;
-const CG_FLOAT3X4: u32 = 1059;
-const CG_FLOAT4X3: u32 = 1062;
-const CG_FLOAT4X4: u32 = 1063;
-const CG_BOOL: u32 = 1113;
-const CG_BOOL1: u32 = 1114;
-const CG_BOOL2: u32 = 1115;
-const CG_BOOL3: u32 = 1116;
-const CG_BOOL4: u32 = 1117;
-const CG_BOOL3X3: u32 = 1128;
-const CG_BOOL3X4: u32 = 1129;
-const CG_BOOL4X3: u32 = 1132;
-const CG_BOOL4X4: u32 = 1133;
+const CG_UNIFORM: u32 = 4102;
+const CG_C: u32 = 2178;
+const CG_UNDEFINED: u32 = 3256;
+// Values from Cell SDK 3.70's Cg/NV/cg_datatypes.h. CG_TYPE_START_ENUM
+// itself occupies 1024, so the first datatype is 1025.
+const CG_FLOAT: u32 = 1045;
+const CG_FLOAT1: u32 = 1091;
+const CG_FLOAT2: u32 = 1046;
+const CG_FLOAT3: u32 = 1047;
+const CG_FLOAT4: u32 = 1048;
+const CG_FLOAT3X3: u32 = 1059;
+const CG_FLOAT3X4: u32 = 1060;
+const CG_FLOAT4X3: u32 = 1063;
+const CG_FLOAT4X4: u32 = 1064;
+const CG_BOOL: u32 = 1114;
+const CG_BOOL1: u32 = 1115;
+const CG_BOOL2: u32 = 1116;
+const CG_BOOL3: u32 = 1117;
+const CG_BOOL4: u32 = 1118;
+const CG_BOOL3X3: u32 = 1129;
+const CG_BOOL3X4: u32 = 1130;
+const CG_BOOL4X3: u32 = 1133;
+const CG_BOOL4X4: u32 = 1134;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Profile {
@@ -225,6 +229,119 @@ impl<'a> Program<'a> {
 }
 
 impl Context {
+    /// Sets a reflected Cell SDK Cg vertex parameter, following the SDK's
+    /// `SetVertexProgramParameter` type and row-record conventions.
+    /// Matrix row values are tightly packed by their declared column count.
+    pub fn set_cg_vertex_parameter(
+        &mut self,
+        parameter: &Parameter<'_>,
+        value: &[f32],
+    ) -> Result<(), Error> {
+        if be32(parameter.image, 0) != 7003
+            || !matches!(parameter.variability, CG_CONSTANT | CG_UNIFORM)
+            || !matches!(parameter.resource, CG_UNDEFINED | CG_C)
+            || !(-1..468).contains(&parameter.resource_index)
+        {
+            return Err(Error::InvalidArgument);
+        }
+        if parameter.resource == CG_UNDEFINED {
+            return Ok(());
+        }
+
+        let (rows, columns) = match parameter.data_type {
+            CG_FLOAT | CG_FLOAT1 => (1usize, 1usize),
+            CG_FLOAT2 => (1, 2),
+            CG_FLOAT3 => (1, 3),
+            CG_FLOAT4 => (1, 4),
+            CG_FLOAT3X3 => (3, 3),
+            CG_FLOAT3X4 => (3, 4),
+            CG_FLOAT4X3 => (4, 3),
+            CG_FLOAT4X4 => (4, 4),
+            _ => return Err(Error::InvalidArgument),
+        };
+        let mut registers = [0u16; 4];
+        let mut active = [false; 4];
+        let mut all_rows_defined = rows == 4 && columns == 4;
+        if rows == 1 {
+            if parameter.resource_index == -1 {
+                return Ok(());
+            }
+            if !(0..468).contains(&parameter.resource_index) {
+                return Err(Error::InvalidArgument);
+            }
+            registers[0] = parameter.resource_index as u16;
+            active[0] = true;
+        } else {
+            // The SDK's matrix cases start at the following binary parameter
+            // record. Each row has its own resource and may be undefined.
+            let first = parameter
+                .parameter_offset
+                .checked_add(PARAMETER_BYTES)
+                .ok_or(Error::InvalidArgument)?;
+            let end = first
+                .checked_add(rows * PARAMETER_BYTES)
+                .ok_or(Error::InvalidArgument)?;
+            if end > parameter.parameter_end {
+                return Err(Error::InvalidArgument);
+            }
+            for row in 0..rows {
+                let record = region(
+                    parameter.image,
+                    (first + row * PARAMETER_BYTES) as u32,
+                    PARAMETER_BYTES,
+                )
+                .map_err(|_| Error::InvalidArgument)?;
+                let resource = be32(record, 4);
+                let index = be32(record, 12) as i32;
+                if !matches!(resource, CG_UNDEFINED | CG_C) {
+                    return Err(Error::InvalidArgument);
+                }
+                all_rows_defined &= resource != CG_UNDEFINED;
+                if !(-1..468).contains(&index) {
+                    return Err(Error::InvalidArgument);
+                }
+                if resource != CG_UNDEFINED && index != -1 {
+                    registers[row] = index as u16;
+                    active[row] = true;
+                }
+            }
+        }
+
+        if all_rows_defined && active[..rows].iter().any(|active| !*active) {
+            // The SDK's fully defined float4x4 case suppresses the entire
+            // update if any row index is -1.
+            return Ok(());
+        }
+        let required = rows.checked_mul(columns).ok_or(Error::InvalidArgument)?;
+        if value.len() < required {
+            return Err(Error::InvalidArgument);
+        }
+
+        // Validate the whole reflected range before emitting any packet.
+        let mut vectors = [[0.0; 4]; 4];
+        for row in 0..rows {
+            let start = row * columns;
+            vectors[row][..columns].copy_from_slice(&value[start..start + columns]);
+        }
+        let contiguous = (1..rows).all(|row| registers[row] == registers[row - 1] + 1);
+        if rows == 4
+            && columns == 4
+            && active[..rows].iter().all(|active| *active)
+            && contiguous
+        {
+            // The SDK batches a fully reflected float4x4 from its first row's
+            // register. Sparse matrices take the per-row path below.
+            self.set_vertex_constants(registers[0], &vectors[..rows])?;
+        } else {
+            for row in 0..rows {
+                if active[row] {
+                    self.set_vertex_constants(registers[row], &[vectors[row]])?;
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// Queues an update of one reflected Cell SDK Cg fragment constant row.
     /// Call `refresh_fragment_program` after uploading the desired rows.
     ///

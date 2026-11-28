@@ -35,7 +35,8 @@ function descriptors.
   supports conditional draws, report DMA readback, and Z-cull statistics
   and stencil-cull settings.
 - `shader::cg` reads big-endian Cell SDK Cg revision 6. `shader::cgb` reads
-  CGB vertex and fragment configurations and vertex default constants. Both
+  CGB vertex and fragment configurations and vertex default constants. Cg
+  vertex parameters can be updated directly from their reflected records. Both
   readers can update embedded fragment constants in a writable microcode copy
   before upload. They can also queue constant writes to an uploaded program
   and refresh its address before drawing.
@@ -44,7 +45,12 @@ function descriptors.
   relocated texture descriptor with `Image::descriptor_at`.
 - `rsx::raw` exposes direct GCM firmware calls. `rsx::methods` names
   the hardware methods from the SDK, and `Context::write_method` emits
-  incrementing and non-incrementing command packets.
+  incrementing and non-incrementing command packets. `Context` and
+  `CommandRecorder` also provide `write_method_with_payload` for filling a
+  zero-initialized packet payload in place. The method header and cursor are
+  committed after the fill closure succeeds; an error leaves the packet
+  uncommitted, and insufficient FIFO or recorder capacity returns
+  `CommandBufferFull` without running the closure.
 
 Several operations are unsafe because the GPU accesses mapped memory
 asynchronously. Keep backing storage live while it is mapped or registered.
@@ -124,7 +130,14 @@ left the clear RGB `0x3578c8`. This confirms alpha-kill behavior in that mode.
 
 The PPU packet check in RPCS3 confirmed the Cell GCM command words for the
 no-paranoid fetch mask, alpha-kill control, and linear R32F vertex texture
-binding. It also checked descriptor construction for RGBA32F.
+binding. It also checked descriptor construction for RGBA32F. A separate
+packet smoke checked successful in-place payload fills, that closure errors
+leave packets uncommitted for both `Context` and `CommandRecorder`, and that
+insufficient capacity returns `CommandBufferFull` without invoking the fill
+closure. Standalone sampler filter and address/remap setters and the NV3062
+transfer destination selector also matched their expected FIFO packets. The
+texture optimization setter now rejects slopes above 31, matching the SDK's
+five-bit field.
 
 With `verify-framebuffer`, the `rsx-triangle` example reproduces all nine
 NV0039 input/output stride pairs. Each case copies three rows with distinct
@@ -142,13 +155,17 @@ Legacy Recompiler mode: all 64 active green RGBA32F lanes matched immediately
 after DMA (digest `0x9fde6ac5`); the first draw read red `0xff0000`; a clear to
 sentinel RGB `0xa53c91` was read back before rebinding; then the green rebind
 read center RGB `0x00ff00` while the untouched corner remained `0xa53c91`.
-This verifies RGBA32F same-target rebinding in that mode. The diagnostic does
-not isolate which individual change resolved the earlier retained-red result.
-The async shader interpreter reported that it does not support vertex
-textures. Separate R32F runs used the sampled height to move the triangle
-apex. A height of +0.65 produced center RGB `0x336619`. A height of -0.65
-left the center at its pre-draw value. Same-target R32F rebinding still needs
-verification.
+This verifies RGBA32F same-target rebinding in that mode. A separate R32F
+same-target high-to-low run first drew the high sample and read center RGB
+`0x336619`, then cleared and read sentinel RGB `0xa53c91`; after rebinding the
+low sample, the center retained `0xa53c91` while the triangle region at y=78%
+read `0x336619`. This confirms the low sample moved the triangle away from
+the center on the same target. The diagnostic does not isolate which
+individual change resolved the earlier retained-red result. The async shader
+interpreter reported that it does not support vertex textures. The R32F test
+also passed when the shader matrix and animation parameters were updated by
+name using `set_cg_vertex_parameter`. The reflected FIFO check covered the
+original matrix, its sparse and noncontiguous variants, and unallocated rows.
 
 A PPU packet check in RPCS3 verified the independent Cell GCM blend factor,
 equation, and constant setters, as well as independent stencil and culling
@@ -182,3 +199,8 @@ back as `0xff001cc6`, `0xffe70039`, `0xff18e300`, and `0xffffffff`. Feeding the
 byte-swapped words through scratch storage produced the expected colors. The
 current Vulkan-default probe produced no readback. This records an observed
 backend byte-order discrepancy; Rust code was not changed.
+
+The SDK Cg datatype enum check corrected the numeric IDs used by fragment
+parameter DMA. All 18 supported float and boolean type cases passed. The
+original Cg fragment `texSize` update copied two floats and preserved the
+third microcode word at each embedded copy.
