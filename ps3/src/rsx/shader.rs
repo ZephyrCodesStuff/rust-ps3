@@ -177,8 +177,17 @@ impl Context {
         Ok(())
     }
 
-    /// Updates adjacent four-component vertex constant registers.
-    pub(super) fn set_vertex_constants(
+    /// Writes consecutive four-component vertex constant registers (`c0`–`c467`).
+    ///
+    /// Each register is one `[x, y, z, w]` value. Writes are emitted in
+    /// packets of at most eight registers, matching the RSX vertex constant
+    /// load method. An empty slice emits no FIFO data.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidArgument`] if the requested range extends past
+    /// register `c467`.
+    pub fn set_vertex_constants(
         &mut self,
         start: u16,
         values: &[[f32; 4]],
