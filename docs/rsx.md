@@ -50,7 +50,10 @@ function descriptors.
   zero-initialized packet payload in place. The method header and cursor are
   committed after the fill closure succeeds; an error leaves the packet
   uncommitted, and insufficient FIFO or recorder capacity returns
-  `CommandBufferFull` without running the closure.
+  `CommandBufferFull` without running the closure. The aligned inline draw,
+  vertex constant, and inline transfer variants provide 16-byte-aligned
+  payload slices. Alignment uses the FIFO address returned after reservation
+  and any refill.
 
 Several operations are unsafe because the GPU accesses mapped memory
 asynchronously. Keep backing storage live while it is mapped or registered.
@@ -171,13 +174,22 @@ A PPU packet check in RPCS3 verified the independent Cell GCM blend factor,
 equation, and constant setters, as well as independent stencil and culling
 state. A separate FIFO check verified direct vertex constant uploads, including
 eight-register packet splitting and rejection of out-of-range register writes.
+The scalar component setter emits only the supplied lanes of the final
+register. The FIFO check covered partial writes and the 32-word boundary.
+The R32F example also passed after a one-component write to its animation
+register, preserving both components that control height displacement.
 The typed `set_vertex_constants_with` fill was checked against its FIFO packet,
 and its uploaded values were exercised by rendering. FIFO checks also covered
 the three inline draw fill variants; rendering verified inline `u32` vertex
 words, `u32` indices, and packed `u16` index words. Inline transfer fills
 passed three-word and 513-word DMA readbacks with padding guards. When the
 second callback returned an error, the first 512 words still transferred
-and the destination at the failed block was preserved.
+and the destination at the failed block was preserved. Aligned versions
+passed vertex, 32-bit index and packed 16-bit index rendering as well as
+the R32F draw with aligned vertex constants. The inline transfer check covered
+all four starting word offsets. A separate aligned transfer reservation
+triggered a live FIFO refill and verified the resulting payload address and
+DMA destination words.
 
 The `verify-framebuffer` example tested four face-culling settings on the
 same back buffer. Changing the culled face or front-face winding switched
