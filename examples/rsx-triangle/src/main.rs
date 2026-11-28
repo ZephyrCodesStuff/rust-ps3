@@ -250,6 +250,8 @@ fn run() -> Result<(), Error> {
     let rgb565_texels = vram.allocate(TEX_PITCH * 4, 128)?;
     #[cfg(feature = "verify-framebuffer")]
     let argb1555_texels = vram.allocate(TEX_PITCH * 4, 128)?;
+    #[cfg(feature = "verify-framebuffer")]
+    let argb4444_texels = vram.allocate(TEX_PITCH * 4, 128)?;
     let scaled = vram.allocate(TEX_PITCH * 8, 128)?;
     let mut vertices = vram.allocate(core::mem::size_of_val(&TRIANGLE) as u32, 16)?;
     let mut fragment_code =
@@ -296,6 +298,7 @@ fn run() -> Result<(), Error> {
         for (destination, texel, reference) in [
             (&rgb565_texels, 0xf800u16, 0x1234_5679),
             (&argb1555_texels, 0x03e0u16, 0x1234_567a),
+            (&argb4444_texels, 0x800fu16, 0x1234_567b),
         ] {
             for row in 0..4 {
                 upload.write(row * TEX_PITCH, [texel.to_be_bytes(); 4].as_flattened())?;
@@ -409,6 +412,30 @@ fn run() -> Result<(), Error> {
             4,
             TEX_PITCH,
         )?;
+        #[cfg(feature = "verify-framebuffer")]
+        let argb4444 = {
+            use ps3::rsx::TextureFormat;
+
+            let describe = |pitch, format| {
+                Texture::linear_2d(
+                    argb4444_texels.location(),
+                    argb4444_texels.offset(),
+                    4,
+                    4,
+                    pitch,
+                    format,
+                )
+            };
+            assert!(matches!(
+                describe(7, TextureFormat::A4R4G4B4),
+                Err(Error::InvalidArgument)
+            ));
+            assert!(matches!(
+                describe(TEX_PITCH, TextureFormat::Dxt1),
+                Err(Error::InvalidArgument)
+            ));
+            describe(TEX_PITCH, TextureFormat::A4R4G4B4)?
+        };
         context.bind_texture(0, &texture, &sampler)?;
         context.set_vertex_attribute(VertexAttribute {
             slot: 0,
@@ -587,6 +614,7 @@ fn run() -> Result<(), Error> {
             for (index, (name, descriptor, expected)) in [
                 ("RGB565", rgb565, 0xffff_0000),
                 ("ARGB1555", argb1555, 0x0000_ff00),
+                ("ARGB4444", argb4444, 0x8800_00ff),
             ]
             .into_iter()
             .enumerate()

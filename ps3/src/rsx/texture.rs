@@ -54,6 +54,38 @@ impl TextureFormat {
     pub const fn encode(self, layout: TextureLayout, coordinates: TextureCoordinates) -> u8 {
         self as u8 | layout as u8 | coordinates as u8
     }
+
+    const fn bytes_per_texel(self) -> Option<u32> {
+        Some(match self {
+            Self::B8 => 1,
+            Self::A1R5G5B5
+            | Self::A4R4G4B4
+            | Self::R5G6B5
+            | Self::Depth16
+            | Self::Depth16Float
+            | Self::X16
+            | Self::R5G5B5A1
+            | Self::D1R5G5B5 => 2,
+            Self::A8R8G8B8
+            | Self::Depth24D8
+            | Self::Depth24D8Float
+            | Self::Y16X16
+            | Self::X32Float
+            | Self::D8R8G8B8
+            | Self::Y16X16Float => 4,
+            Self::W16Z16Y16X16Float => 8,
+            Self::W32Z32Y32X32Float => 16,
+            Self::G8B8
+            | Self::R6G5B5
+            | Self::Dxt1
+            | Self::Dxt23
+            | Self::Dxt45
+            | Self::Hilo8
+            | Self::SignedHilo8
+            | Self::PackedB8R8G8R8
+            | Self::PackedR8B8R8G8 => return None,
+        })
+    }
 }
 
 #[repr(u8)]
@@ -274,17 +306,24 @@ fn texture_filter_word(sampler: &Sampler, signed_channels: [bool; 4]) -> u32 {
 }
 
 impl Texture {
-    fn linear_2d(
+    /// Describes one level of linear 2D texture data with normalized coordinates.
+    ///
+    /// Width and height must be in the SDK range of 1 to 4096. `pitch`
+    /// is a byte stride and must hold at least one row of the selected format.
+    /// This constructor supports fixed-size texel formats with known storage
+    /// widths. Compressed, paired packed, `G8B8`, and `R6G5B5` descriptors
+    /// can be supplied through GTF or the fields on [`Texture`].
+    pub fn linear_2d(
         location: Location,
         offset: u32,
         width: u16,
         height: u16,
         pitch: u32,
         format: TextureFormat,
-        bytes_per_texel: u32,
     ) -> Result<Self, Error> {
-        if width == 0
-            || height == 0
+        let bytes_per_texel = format.bytes_per_texel().ok_or(Error::InvalidArgument)?;
+        if !(1..=4096).contains(&width)
+            || !(1..=4096).contains(&height)
             || pitch < u32::from(width) * bytes_per_texel
             || pitch > 0x000f_ffff
         {
@@ -321,7 +360,6 @@ impl Texture {
             height,
             pitch,
             TextureFormat::A8R8G8B8,
-            4,
         )
     }
 
@@ -341,7 +379,6 @@ impl Texture {
             height,
             pitch,
             TextureFormat::R5G6B5,
-            2,
         )
     }
 
@@ -361,7 +398,6 @@ impl Texture {
             height,
             pitch,
             TextureFormat::A1R5G5B5,
-            2,
         )
     }
 

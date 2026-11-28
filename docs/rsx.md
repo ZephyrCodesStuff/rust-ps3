@@ -15,7 +15,9 @@ function descriptors.
   shaders, render targets, depth and stencil testing, blending, and
   vertex and fragment textures.
 - `TextureFormat`, `TextureLayout`, and `TextureRemap` build texture
-  descriptor words. Fragment bindings can select a border source,
+  descriptor words. `Texture::linear_2d` derives the minimum byte pitch
+  from the SDK format for single-level, fixed-size texels. Fragment
+  bindings can select a border source,
   depth comparison, signed-channel interpretation, alpha kill, and
   anisotropic bias. Vertex texture bindings validate the two supported
   linear, normalized floating-point formats and their alignment.
@@ -210,9 +212,10 @@ The fragment control FIFO check confirmed the TXP toggle, minimum register
 count, and rejection of counts above 48.
 
 On the SDK 1.92, 2.70, and 3.70 profiles, the framebuffer example samples
-big-endian RGB565 and ARGB1555 textures in a fragment program. An RGB565
-red texel (`0xf800`) produces opaque red (`0xffff0000`). An ARGB1555 green
-texel with a zero alpha bit (`0x03e0`) produces `0x0000ff00`. A separate
+big-endian RGB565, ARGB1555, and ARGB4444 textures in a fragment program.
+An RGB565 red texel (`0xf800`) produces opaque red (`0xffff0000`). An ARGB1555 green
+texel with a zero alpha bit (`0x03e0`) produces `0x0000ff00`. An ARGB4444
+blue texel with alpha nibble 8 (`0x800f`) produces `0x880000ff`. A separate
 same-format RGB565 transfer preserved the source words.
 
 An SDK packet review confirmed the RGB565 transfer command words. In RPCS3's
