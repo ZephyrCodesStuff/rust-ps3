@@ -137,11 +137,17 @@ format selects a byte step. [NV0039 hardware results](https://github.com/RPCS3/r
 A vertex texture smoke used the original SDK 4.75 `fw_vertex_texture` Cg
 shader pair compiled for RSX. In separate RPCS3 Legacy Recompiler runs, an
 RGBA32F vertex texture produced the expected framebuffer center values
-`0xff0000` and `0x00ff00`. A same-target rebind retained the old red pixel.
+`0xff0000` and `0x00ff00`. A corrected same-target diagnostic also passed in
+Legacy Recompiler mode: all 64 active green RGBA32F lanes matched immediately
+after DMA (digest `0x9fde6ac5`); the first draw read red `0xff0000`; a clear to
+sentinel RGB `0xa53c91` was read back before rebinding; then the green rebind
+read center RGB `0x00ff00` while the untouched corner remained `0xa53c91`.
+This verifies RGBA32F same-target rebinding in that mode. The diagnostic does
+not isolate which individual change resolved the earlier retained-red result.
 The async shader interpreter reported that it does not support vertex
 textures. Separate R32F runs used the sampled height to move the triangle
 apex. A height of +0.65 produced center RGB `0x336619`. A height of -0.65
-left the center at its pre-draw value. Same-target rebinding still needs
+left the center at its pre-draw value. Same-target R32F rebinding still needs
 verification.
 
 A PPU packet check in RPCS3 verified the independent Cell GCM blend factor,
