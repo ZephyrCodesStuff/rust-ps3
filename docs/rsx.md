@@ -90,6 +90,16 @@ draw. With `verify-framebuffer` and **Write Color Buffers** enabled, it checks
 the clear color outside the textured triangle, the sampled texel inside it,
 the original color shader's output, and transfer results.
 
+The standalone SDK occlusion smoke follows the SDK 4.75
+`report_to_main_memory` query sequence with a depth-tested Z24S8 surface:
+enable Z-pass pixel counting, leave Z-cull disabled, clear depth and the
+counter, draw query geometry, then issue the report. Its conditional draw
+checks use separate local report slots for positive and zero results. In
+RPCS3, the positive report produced 158,976 pixels and enabled a visible draw;
+a zero report suppressed its draw and left the framebuffer center at the clear
+color. Reusing one report slot for both conditional checks was not reliable in
+that emulator. This is an RPCS3 result, not a console validation claim.
+
 Cg and CGB shader parsing supports the official SDK formats. GTF decoding
 was checked with single-texture and multi-texture SDK samples. The triangle
 demonstrates native shader upload and draw submission; broader shader and
@@ -97,8 +107,7 @@ rendering combinations still need runtime coverage. Transfer coverage
 includes pitched subrectangle copies, a swizzled copy crossing a 1024-pixel
 boundary, 128-bit pixels, and narrow mip levels. Physical console tests and one-for-one typed
 wrappers for the remaining GCM command helpers are still open.
-Local and main-memory timestamps, local-report DMA readback, and
-main-memory notifications were checked in RPCS3. Conditional rendering,
-positive occlusion counters, advanced sampler behavior, vertex texture
-sampling, channel remapping, custom border colors, and alpha kill need
-runtime verification.
+Local and main-memory timestamps, local-report DMA readback, main-memory
+notifications, and the SDK-like conditional occlusion smoke were checked in
+RPCS3. Advanced sampler behavior, vertex texture sampling, channel remapping,
+custom border colors, and alpha kill need runtime verification.
