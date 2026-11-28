@@ -13,7 +13,7 @@ use ps3::rsx::{
     WrapMode,
 };
 #[cfg(feature = "verify-framebuffer")]
-use ps3::rsx::{Event, EventCallback, ImageCopyTarget, ImagePixelSize};
+use ps3::rsx::{Event, EventCallback, ImageCopyTarget, ImagePixelSize, TransferDataFormat};
 use ps3::sys::sys_timer_usleep;
 
 const MIB: usize = 1024 * 1024;
@@ -76,6 +76,127 @@ extern "C" fn on_user_event(cause: u32) {
     USER_EVENT.store(cause, Ordering::Release);
 }
 
+/// Round-trips NV0039 byte selections and verifies skipped bytes and row padding.
+#[cfg(feature = "verify-framebuffer")]
+fn verify_formatted_copies(
+    context: &mut Context,
+    vram: &mut ps3::rsx::LocalArena,
+    upload: &mut Buffer,
+) -> Result<(), Error> {
+    const COLUMNS: u32 = 16;
+    const ROWS: u32 = 3;
+    const SENTINEL: u8 = 0xa5;
+    const SOURCE_PAD: u8 = 0xe7;
+    let formats = [
+        TransferDataFormat::Bytes1,
+        TransferDataFormat::Bytes2,
+        TransferDataFormat::Bytes4,
+    ];
+    let pitches = [24u32, 36, 68];
+    let output_pitches = [32u32, 40, 72];
+    let mut source = vram.allocate(68 * ROWS, 128)?;
+
+    for (input_index, input_format) in formats.iter().copied().enumerate() {
+        for (output_index, output_format) in formats.iter().copied().enumerate() {
+            let case_index = input_index * formats.len() + output_index;
+            let source_pitch = pitches[input_index];
+            let destination_pitch = output_pitches[output_index];
+            let destination_offset = upload.offset() + 0x1000 + case_index as u32 * 0x1000;
+            let destination_bytes = destination_pitch * ROWS;
+            let input_stride = input_format as u8 as u32;
+            let output_stride = output_format as u8 as u32;
+
+            unsafe {
+                let sentinels = [SENTINEL; 216];
+                upload.write(
+                    destination_offset - upload.offset(),
+                    &sentinels[..destination_bytes as usize],
+                )?;
+                for row in 0..ROWS {
+                    let mut source_row = [SOURCE_PAD; 68];
+                    for column in 0..COLUMNS {
+                        source_row[(column * input_stride) as usize] =
+                            m2mf_sample(case_index as u8, row as u8, column as u8);
+                    }
+                    source.write(row * source_pitch, &source_row[..source_pitch as usize])?;
+                }
+                context.copy_rows_formatted(
+                    TransferMemory {
+                        location: source.location(),
+                        offset: source.offset(),
+                        pitch: source_pitch as i32,
+                    },
+                    TransferMemory {
+                        location: upload.location(),
+                        offset: destination_offset,
+                        pitch: destination_pitch as i32,
+                    },
+                    COLUMNS,
+                    ROWS,
+                    input_format,
+                    output_format,
+                )?;
+                context.finish(0x1234_5680 + case_index as u32, 30_000)?;
+
+                for row in 0..ROWS {
+                    let row_start = destination_offset - upload.offset() + row * destination_pitch;
+                    let mut offset = 0;
+                    while offset < destination_pitch {
+                        let mut expected = [SENTINEL; 4];
+                        for byte in 0..4u32 {
+                            let column = offset + byte;
+                            if column % output_stride == 0 {
+                                let selected = column / output_stride;
+                                if selected < COLUMNS {
+                                    expected[byte as usize] =
+                                        m2mf_sample(case_index as u8, row as u8, selected as u8);
+                                }
+                            }
+                        }
+                        assert_eq!(
+                            upload.read_word(row_start + offset)?,
+                            u32::from_be_bytes(expected),
+                            "input {:?}, output {:?}, row {row}, byte {offset}",
+                            input_format,
+                            output_format,
+                        );
+                        offset += 4;
+                    }
+                }
+            }
+        }
+    }
+
+    // The 16-byte input span fits at this offset, while the 61-byte output
+    // span for Bytes4 would overflow the u32 address range.
+    let invalid_destination = TransferMemory {
+        location: upload.location(),
+        offset: u32::MAX - 15,
+        pitch: 0,
+    };
+    let invalid = unsafe {
+        context.copy_rows_formatted(
+            TransferMemory {
+                location: source.location(),
+                offset: source.offset(),
+                pitch: 0,
+            },
+            invalid_destination,
+            16,
+            1,
+            TransferDataFormat::Bytes1,
+            TransferDataFormat::Bytes4,
+        )
+    };
+    assert!(matches!(invalid, Err(Error::InvalidArgument)));
+    Ok(())
+}
+
+#[cfg(feature = "verify-framebuffer")]
+fn m2mf_sample(case: u8, row: u8, column: u8) -> u8 {
+    case.wrapping_mul(53) ^ row.wrapping_mul(37) ^ column.wrapping_mul(11)
+}
+
 #[ps3::main]
 fn main() {
     if let Err(error) = run() {
@@ -133,6 +254,8 @@ fn run() -> Result<(), Error> {
     }
     let mut upload =
         unsafe { context.map_main(addr_of_mut!(TEXTURE_UPLOAD).cast(), IO_SIZE as u32)? };
+    #[cfg(feature = "verify-framebuffer")]
+    verify_formatted_copies(&mut context, &mut vram, &mut upload)?;
     #[cfg(feature = "verify-framebuffer")]
     unsafe {
         let words = core::array::from_fn::<_, 513, _>(|i| 0x1020_3040 + i as u32);

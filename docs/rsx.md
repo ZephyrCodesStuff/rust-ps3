@@ -119,8 +119,10 @@ The PPU packet check in RPCS3 confirmed the Cell GCM command words for the
 no-paranoid fetch mask, alpha-kill control, and linear R32F vertex texture
 binding. It also checked descriptor construction for RGBA32F.
 
-The NV0039 readback checked six input/output stride pairs in RPCS3. Each
-case copied three rows with distinct source and destination pitches and checked
-that skipped bytes and padding retained their sentinel value. Public PS3
-hardware results independently confirm that the line length counts copied
-bytes and that each format selects a byte step. [NV0039 hardware results](https://github.com/RPCS3/rpcs3/pull/19190)
+With `verify-framebuffer`, the `rsx-triangle` example reproduces all nine
+NV0039 input/output stride pairs. Each case copies three rows with distinct
+source and destination pitches and checks that skipped bytes and row padding
+retain their sentinel value; it also checks that a 61-byte output span that
+would overflow the u32 address range is rejected. RPCS3 readback and public
+PS3 hardware results confirm that the line length counts copied bytes and each
+format selects a byte step. [NV0039 hardware results](https://github.com/RPCS3/rpcs3/pull/19190)
