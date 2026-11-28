@@ -56,6 +56,25 @@ pub enum FlipMode {
     HSyncWithNoise = 3,
 }
 
+/// GCM's pre-initialization command FIFO policy.
+#[repr(i32)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DefaultFifoMode {
+    Traditional = 0,
+    Optimize = 1,
+    Conditional = 2,
+}
+
+/// GCM's pre-initialization system memory mapping policy.
+#[repr(u64)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SystemMode {
+    /// Use the firmware's default I/O mapping size.
+    Default = 0,
+    /// Enable the SDK's 512 MiB I/O map mode.
+    IoMap512Mb = 1,
+}
+
 /// An aligned RSX method address including its subchannel bits.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct Method(u16);
@@ -124,6 +143,28 @@ impl ContextData {
 }
 
 impl Context {
+    /// Selects the default FIFO policy before initializing GCM.
+    ///
+    /// # Safety
+    ///
+    /// Call only before GCM initialization, while no other thread can
+    /// initialize GCM or change its process-wide FIFO settings.
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
+    pub unsafe fn configure_default_fifo_mode(mode: DefaultFifoMode) -> Result<(), Error> {
+        unsafe { Error::status(raw::init_default_fifo_mode(mode as i32)) }
+    }
+
+    /// Selects GCM's system mapping policy before initializing GCM.
+    ///
+    /// # Safety
+    ///
+    /// Call only before GCM initialization, while no other thread can
+    /// initialize GCM or change its process-wide system settings.
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
+    pub unsafe fn configure_system_mode(mode: SystemMode) -> Result<(), Error> {
+        unsafe { Error::status(raw::init_system_mode(mode as u64)) }
+    }
+
     /// Initializes GCM using an application-owned I/O buffer in main memory.
     ///
     /// # Safety
