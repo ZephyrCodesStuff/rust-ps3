@@ -121,8 +121,7 @@ not verify that the missing extension caused the black result. The isolated
 alpha-kill smoke passed in Legacy Recompiler mode: with a transparent texel
 (A=0, RGB=`0x123456`), alpha kill off returned `0x123456`, while alpha kill on
 left the clear RGB `0x3578c8`. This confirms alpha-kill behavior in that mode.
-Vertex texture sampling remains open pending a green run. These are backend
-observations, not console validation claims.
+
 The PPU packet check in RPCS3 confirmed the Cell GCM command words for the
 no-paranoid fetch mask, alpha-kill control, and linear R32F vertex texture
 binding. It also checked descriptor construction for RGBA32F.
