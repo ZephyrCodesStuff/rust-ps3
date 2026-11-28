@@ -163,6 +163,20 @@ SDK profiles passed in RPCS3.
 The vertex branch condition word and the per-slot vertex frequency modulo
 mask also matched their Cell GCM FIFO packets.
 
-The standalone stencil rendering probe drew its `Always`/`Replace` control.
-After a color-only clear, both the matching and mismatching `Equal` draws
-left the center at the clear color. Stencil rendering behavior remains open.
+Standalone stencil runs passed the `Always` and `Never` cases, and the `Equal`
+case with matching stencil value `0x5a` and reference `0x5a`. The mismatching
+case (`0x5a` against reference `0x5b`) preserved the clear-color baseline.
+These are separate standalone results. An earlier multi-draw probe had an
+`Always`/`Replace` control, but after a color-only clear both matching and
+mismatching `Equal` draws left the center at the clear color; that multi-draw
+result remains unresolved.
+
+The fragment control FIFO check confirmed the TXP toggle, minimum register
+count, and rejection of counts above 48.
+
+An SDK packet review confirmed the RGB565 transfer command words. In RPCS3's
+forced CPU-blit path, big-endian red, green, blue, and white source words read
+back as `0xff001cc6`, `0xffe70039`, `0xff18e300`, and `0xffffffff`. Feeding the
+byte-swapped words through scratch storage produced the expected colors. The
+current Vulkan-default probe produced no readback. This records an observed
+backend byte-order discrepancy; Rust code was not changed.
