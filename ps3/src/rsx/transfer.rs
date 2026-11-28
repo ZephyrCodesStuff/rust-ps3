@@ -10,6 +10,37 @@ const LINEAR_SURFACE: u32 = 0x3133_71c3;
 const SWIZZLED_SURFACE: u32 = 0x3133_7a73;
 const BLIT_BLOCK: u32 = 1024;
 
+fn inline_transfer_setup(location: Location, destination: u32, words: usize) -> [u32; 11] {
+    let extent = (1 << 16) | words as u32;
+    [
+        nv3062::SET_CONTEXT_DMA_IMAGE_DESTIN.header(1, true),
+        DMA_LOCAL + location as u32,
+        nv3062::SET_OFFSET_DESTIN.header(1, true),
+        destination & !63,
+        nv3062::SET_COLOR_FORMAT.header(2, true),
+        0x0b, // Y32
+        0x1000_1000,
+        nv308a::POINT.header(3, true),
+        (destination & 63) / 4,
+        extent,
+        extent,
+    ]
+}
+
+fn validate_inline_transfer(offset: u32, word_count: usize) -> Result<(), Error> {
+    if word_count == 0 {
+        return Ok(());
+    }
+    let bytes = u32::try_from(word_count)
+        .ok()
+        .and_then(|count| count.checked_mul(4))
+        .ok_or(Error::InvalidArgument)?;
+    if offset % 4 != 0 || offset.checked_add(bytes - 1).is_none() {
+        return Err(Error::InvalidArgument);
+    }
+    Ok(())
+}
+
 /// Byte step selector accepted by the Cell GCM M2MF transfer format method.
 ///
 /// NV0039 copies one byte per column, advancing this many bytes between
@@ -445,37 +476,67 @@ impl Context {
         if words.is_empty() {
             return Ok(());
         }
-        let bytes = u32::try_from(words.len())
-            .ok()
-            .and_then(|count| count.checked_mul(4))
-            .ok_or(Error::InvalidArgument)?;
-        if offset % 4 != 0 || offset.checked_add(bytes - 1).is_none() {
-            return Err(Error::InvalidArgument);
-        }
+        validate_inline_transfer(offset, words.len())?;
 
-        // Each image is one row of Y32 pixels. The transfer unit requires
-        // an aligned surface base and an even number of payload words.
         let mut destination = offset;
         for block in words.chunks(512) {
             let count = block.len();
             let padding = count % 2;
-            let extent = (1 << 16) | count as u32;
-            let setup = [
-                nv3062::SET_CONTEXT_DMA_IMAGE_DESTIN.header(1, true),
-                DMA_LOCAL + location as u32,
-                nv3062::SET_OFFSET_DESTIN.header(1, true),
-                destination & !63,
-                nv3062::SET_COLOR_FORMAT.header(2, true),
-                0x0b, // Y32
-                0x1000_1000,
-                nv308a::POINT.header(3, true),
-                (destination & 63) / 4,
-                extent,
-                extent,
-                nv308a::COLOR.header(count + padding, true),
-            ];
-            unsafe { self.write_words(&[&setup, block, &[0][..padding]])? };
+            let setup = inline_transfer_setup(location, destination, count);
+            let color_method = [nv308a::COLOR.header(count + padding, true)];
+            unsafe { self.write_words(&[&setup, &color_method, block, &[0][..padding]])? };
             destination = destination.wrapping_add(count as u32 * 4);
+        }
+        Ok(())
+    }
+
+    /// Emits generated words into inline-transfer FIFO payloads without an
+    /// intermediate source slice.
+    ///
+    /// `fill` runs once per block of at most 512 logical words. The hardware
+    /// requires an even payload length, so odd blocks receive a zero padding
+    /// word that is kept out of the slice passed to `fill`. Each block's setup,
+    /// payload header, data and padding are reserved as one stream and are
+    /// committed only when its callback succeeds. If a later callback fails,
+    /// previous blocks remain queued and the current block is not committed.
+    ///
+    /// # Safety
+    /// The destination must remain mapped and cover the full write. Order
+    /// concurrent CPU or GPU accesses to that range around the transfer.
+    pub unsafe fn inline_transfer_with(
+        &mut self,
+        location: Location,
+        offset: u32,
+        word_count: usize,
+        mut fill: impl FnMut(&mut [u32]) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        if word_count == 0 {
+            return Ok(());
+        }
+        validate_inline_transfer(offset, word_count)?;
+
+        let mut destination = offset;
+        let mut remaining = word_count;
+        while remaining != 0 {
+            let count = remaining.min(512);
+            let padding = count % 2;
+            let payload_words = count + padding;
+            let setup = inline_transfer_setup(location, destination, count);
+            let total_words = setup.len() + 1 + payload_words;
+            unsafe {
+                self.write_words_with_payload(total_words, |packet| {
+                    packet[..setup.len()].copy_from_slice(&setup);
+                    packet[setup.len()] = nv308a::COLOR.header(payload_words, true);
+                    let payload_start = setup.len() + 1;
+                    fill(&mut packet[payload_start..payload_start + count])
+                })?;
+            }
+            remaining -= count;
+            if remaining != 0 {
+                destination = destination
+                    .checked_add((count as u32) * 4)
+                    .ok_or(Error::InvalidArgument)?;
+            }
         }
         Ok(())
     }
