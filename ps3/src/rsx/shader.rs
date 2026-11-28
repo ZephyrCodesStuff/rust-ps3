@@ -121,6 +121,29 @@ impl Context {
         unsafe { self.write_words(&[&[packet(0x1fec, 1), u32::from(enable)]]) }
     }
 
+    /// Updates fragment program control while preserving its CGB shader flags.
+    ///
+    /// `control_txp` selects the TXP control bit in the shader control word.
+    /// The register count comes from the parsed CGB configuration and is
+    /// clamped to the hardware minimum of two registers, matching Cell GCM.
+    pub fn set_fragment_program_control(
+        &mut self,
+        config: &cgb::FragmentConfiguration,
+        control_txp: bool,
+    ) -> Result<(), Error> {
+        if config.registers > 48 {
+            return Err(Error::InvalidArgument);
+        }
+        const TXP: u32 = 1 << 15;
+        const REGISTER_COUNT: u32 = 0xff << 24;
+        let control = (config.control & !(TXP | REGISTER_COUNT))
+            | (u32::from(control_txp) * TXP)
+            | (1 << 10)
+            | (u32::from(config.registers.max(2)) << 24);
+        use super::methods::nv4097::SET_SHADER_CONTROL;
+        unsafe { self.write_method(SET_SHADER_CONTROL, true, &[control]) }
+    }
+
     /// Refreshes the microcode address after queued fragment constant writes.
     ///
     /// # Safety
