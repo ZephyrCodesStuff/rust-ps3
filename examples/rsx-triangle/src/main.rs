@@ -8,7 +8,8 @@ use core::sync::atomic::{AtomicU32, Ordering};
 use ps3::println;
 use ps3::rsx::{
     video, Buffer, ClearMask, Compare, Context, Error, FlipMode, IoBuffer, LabelStage, Location,
-    MagFilter, Method, MinFilter, Primitive, Rect, Sampler, ScaleTarget, Swapchain, Texture,
+    CullFace, FaceWinding, MagFilter, Method, MinFilter, Primitive, Rect, Sampler, ScaleTarget,
+    Swapchain, Texture,
     TransferMemory, TransferScale, TransferSurface, VertexAttribute, VertexType, Viewport,
     WrapMode,
 };
@@ -402,6 +403,47 @@ fn run() -> Result<(), Error> {
         context.set_depth_compare(Compare::LessEqual)?;
         context.set_color_mask([true; 4])?;
         context.set_clear_color(COLOR)?;
+        #[cfg(feature = "verify-framebuffer")]
+        {
+            // The submitted triangle is counter-clockwise. Check cull enable,
+            // selected face, and front-face winding against the same target.
+            // Backend labels plus finish make each framebuffer readback follow
+            // completion of the corresponding clear and draw.
+            let cases = [
+                ("disabled", false, CullFace::Back, FaceWinding::Clockwise, TEXEL),
+                ("back-cull-clockwise-front", true, CullFace::Back, FaceWinding::Clockwise, COLOR),
+                ("back-cull-ccw-front", true, CullFace::Back, FaceWinding::CounterClockwise, TEXEL),
+                ("front-cull-ccw-front", true, CullFace::Front, FaceWinding::CounterClockwise, COLOR),
+            ];
+            for (index, (name, enabled, face, winding, expected)) in
+                cases.iter().copied().enumerate()
+            {
+                context.set_cull_enabled(enabled)?;
+                context.set_cull_face(face)?;
+                context.set_face_winding(winding)?;
+                context.clear(ClearMask::COLOR)?;
+                context.draw_arrays(Primitive::Triangles, 0, 3)?;
+                let label = 0x0123_4500 + index as u32;
+                draw_done.write(0);
+                context.signal_label(&draw_done, LabelStage::Backend, label)?;
+                context.wait_label(&draw_done, label)?;
+                context.finish(0x1234_5680 + index as u32, 30_000)?;
+                let center = back.storage().read_word(
+                    back.pitch() * (u32::from(size.height) / 2)
+                        + (u32::from(size.width) / 2) * 4,
+                )? & 0x00ff_ffff;
+                println!(
+                    "cull case {} center={:06x} expected={:06x}",
+                    name,
+                    center,
+                    expected & 0x00ff_ffff
+                );
+                assert_eq!(center, expected & 0x00ff_ffff, "cull case {}", name);
+            }
+            // Restore the original pipeline state before the example's regular draw.
+            context.set_cull_enabled(false)?;
+            context.set_face_winding(FaceWinding::CounterClockwise)?;
+        }
         context.clear(ClearMask::COLOR)?;
         context.draw_arrays(Primitive::Triangles, 0, 3)?;
         draw_done.write(0);

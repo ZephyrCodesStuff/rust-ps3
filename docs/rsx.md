@@ -154,3 +154,8 @@ A PPU packet check in RPCS3 verified the independent Cell GCM blend factor,
 equation, and constant setters, as well as independent stencil and culling
 state. A separate FIFO check verified direct vertex constant uploads, including
 eight-register packet splitting and rejection of out-of-range register writes.
+
+The `verify-framebuffer` example tested four face-culling settings on the
+same back buffer. Changing the culled face or front-face winding switched
+the center between the textured triangle and the clear color. All three
+SDK profiles passed in RPCS3.
