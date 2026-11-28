@@ -162,3 +162,7 @@ SDK profiles passed in RPCS3.
 
 The vertex branch condition word and the per-slot vertex frequency modulo
 mask also matched their Cell GCM FIFO packets.
+
+The standalone stencil rendering probe drew its `Always`/`Replace` control.
+After a color-only clear, both the matching and mismatching `Equal` draws
+left the center at the clear color. Stencil rendering behavior remains open.
