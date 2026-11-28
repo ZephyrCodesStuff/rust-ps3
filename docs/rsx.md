@@ -169,7 +169,9 @@ case (`0x5a` against reference `0x5b`) preserved the clear-color baseline.
 These are separate standalone results. An earlier multi-draw probe had an
 `Always`/`Replace` control, but after a color-only clear both matching and
 mismatching `Equal` draws left the center at the clear color; that multi-draw
-result remains unresolved.
+result remains unresolved. A no-clear follow-up preserved the original texel
+after rebinding a different texture, including during an `Always` control.
+That run did not isolate an `Equal` comparison failure.
 
 The fragment control FIFO check confirmed the TXP toggle, minimum register
 count, and rejection of counts above 48.
