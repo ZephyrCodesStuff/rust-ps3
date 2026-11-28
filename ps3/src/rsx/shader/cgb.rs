@@ -136,6 +136,19 @@ impl<'a> FragmentProgram<'a> {
             ..self.config
         }
     }
+
+    /// Preserves the vertex shader's user clip outputs in the fragment input
+    /// mask. The SDK's `userclip_gcm` sample copies vertex output bits 6–11
+    /// into this mask because GCM derives the vertex output mask from it.
+    pub fn configuration_at_with_vertex_output_mask(
+        &self,
+        offset: u32,
+        vertex_output_mask: u32,
+    ) -> FragmentConfiguration {
+        let mut config = self.configuration_at(offset);
+        config.attribute_input_mask |= vertex_output_mask & (0x3f << 6);
+        config
+    }
 }
 
 struct Program<'a> {

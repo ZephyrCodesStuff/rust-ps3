@@ -4,6 +4,7 @@ use crate::sys::raw::PpuFunctionDescriptor;
 
 use super::commands::packet;
 use super::{raw, Context, Error};
+use super::video::EventFrequency;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Event {
@@ -57,6 +58,16 @@ impl Context {
                 Event::VBlank => raw::set_v_blank_handler(descriptor),
             }
         }
+    }
+
+    /// Sets how often the VBlank event handler is delivered.
+    pub fn set_vblank_frequency(&mut self, frequency: EventFrequency) {
+        unsafe { raw::set_v_blank_frequency(frequency as u32) };
+    }
+
+    /// Sets how often the SecondV event handler is delivered.
+    pub fn set_second_v_frequency(&mut self, frequency: EventFrequency) {
+        unsafe { raw::set_second_v_frequency(frequency as u32) };
     }
 
     /// Appends a command that delivers `cause` to the GCM user handler.

@@ -4,6 +4,18 @@
 use super::raw;
 use super::Error;
 
+/// VBlank or SecondV callback delivery frequency accepted by Cell GCM.
+///
+/// The SDK documents these values as 59.94 Hz, scanout frequency, and disabled.
+/// They control callback frequency; they do not change the video output mode.
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum EventFrequency {
+    Hz59_94 = 1,
+    Scanout = 2,
+    Disabled = 3,
+}
+
 /// Position and size of one GCM display buffer, in RSX I/O address space.
 #[cfg(feature = "sdk-370")]
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]

@@ -48,3 +48,4 @@ pub use transfer::{
     TransferMemory, TransferOperation, TransferOrigin, TransferScaleFormat, TransferSurfaceFormat,
 };
 pub use types::*;
+pub use video::EventFrequency;
