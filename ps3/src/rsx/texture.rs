@@ -79,6 +79,15 @@ pub enum TextureRemapOrder {
     Xxxy = 1,
 }
 
+/// Channel shape accepted by the RSX vertex texture fetch path for `f32` data.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum VertexTextureChannels {
+    /// One 32-bit floating-point channel (`X32_FLOAT`).
+    R,
+    /// Four 32-bit floating-point channels (`W32_Z32_Y32_X32_FLOAT`).
+    Rgba,
+}
+
 /// A GCM channel remap word that can be stored in `Texture::remap`.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -270,6 +279,49 @@ impl Texture {
         })
     }
 
+    /// Describes one level of linear, normalized-coordinate vertex `f32` data.
+    ///
+    /// Vertex textures support either one channel (`X32_FLOAT`) or four
+    /// channels (`W32_Z32_Y32_X32_FLOAT`). The base offset must be 128-byte
+    /// aligned, and `pitch` must hold at least one row and be a whole number
+    /// of texels.
+    pub fn linear_vertex_f32(
+        location: Location,
+        offset: u32,
+        width: u16,
+        height: u16,
+        channels: VertexTextureChannels,
+        pitch: u32,
+    ) -> Result<Self, Error> {
+        let (format, bytes_per_texel) = match channels {
+            VertexTextureChannels::R => (TextureFormat::X32Float, 4),
+            VertexTextureChannels::Rgba => (TextureFormat::W32Z32Y32X32Float, 16),
+        };
+        if width == 0
+            || height == 0
+            || offset % 128 != 0
+            || pitch % bytes_per_texel != 0
+            || pitch < u32::from(width) * bytes_per_texel
+            || pitch > 0x000f_ffff
+        {
+            return Err(Error::InvalidArgument);
+        }
+        Ok(Self {
+            format: format.encode(TextureLayout::Linear, TextureCoordinates::Normalized),
+            mipmaps: 1,
+            dimension: 2,
+            cubemap: 0,
+            remap: TextureRemap::IDENTITY.bits(),
+            width,
+            height,
+            depth: 1,
+            location: location as u8,
+            reserved: 0,
+            pitch,
+            offset,
+        })
+    }
+
     fn validate(&self) -> Result<(), Error> {
         if self.location > 1
             || self.cubemap > 1
@@ -298,7 +350,55 @@ impl Texture {
     }
 }
 
+fn texture_control_word(
+    enabled: bool,
+    min_lod: u16,
+    max_lod: u16,
+    anisotropy: u8,
+    alpha_kill: bool,
+) -> u32 {
+    (u32::from(enabled) << 31)
+        | (u32::from(min_lod) << 19)
+        | (u32::from(max_lod) << 7)
+        | (u32::from(anisotropy) << 4)
+        | (u32::from(alpha_kill) << 2)
+}
+
 impl Context {
+    /// Enables no-paranoid texture fetches for the fragment samplers selected
+    /// by `sampler_mask` (bit *n* selects texture slot *n*).
+    ///
+    /// This is the standalone Cell GCM `SetNoParanoidTextureFetches` method.
+    pub fn set_no_paranoid_texture_fetches(&mut self, sampler_mask: u16) -> Result<(), Error> {
+        unsafe {
+            self.write_words(&[&[
+                packet(nv4097::SET_NO_PARANOID_TEXTURE_FETCHES.address(), 1),
+                u32::from(sampler_mask),
+            ]])
+        }
+    }
+
+    /// Sets a fragment sampler's enable, LOD range, anisotropy and alpha-kill
+    /// state without changing its other sampler methods.
+    ///
+    /// LOD values use unsigned 4.8 fixed point, matching [`Sampler::lod`].
+    pub fn set_texture_control_alpha_kill(
+        &mut self,
+        slot: u8,
+        enabled: bool,
+        min_lod: u16,
+        max_lod: u16,
+        anisotropy: u8,
+        alpha_kill: bool,
+    ) -> Result<(), Error> {
+        if slot >= 16 || min_lod > max_lod || max_lod > 0x0fff || anisotropy > 7 {
+            return Err(Error::InvalidArgument);
+        }
+        let value = texture_control_word(enabled, min_lod, max_lod, anisotropy, alpha_kill);
+        let address = nv4097::SET_TEXTURE_CONTROL0.address() + u16::from(slot) * 32;
+        unsafe { self.write_words(&[&[packet(address, 1), value]]) }
+    }
+
     /// Binds texture memory and sampling state to a fragment texture slot.
     ///
     /// # Safety
@@ -351,11 +451,13 @@ impl Context {
             | (u32::from(sampler.gamma) << 20)
             | ((options.signed_remap as u32) << 24)
             | (u32::from(sampler.compare) << 28);
-        let control = 1 << 31
-            | (u32::from(min_lod) << 19)
-            | (u32::from(max_lod) << 7)
-            | (u32::from(sampler.anisotropy) << 4)
-            | (u32::from(options.alpha_kill) << 2);
+        let control = texture_control_word(
+            true,
+            min_lod,
+            max_lod,
+            sampler.anisotropy,
+            options.alpha_kill,
+        );
         let [a, red, green, blue] = options.signed_channels.map(u32::from);
         let filter = (a << 28)
             | (red << 29)

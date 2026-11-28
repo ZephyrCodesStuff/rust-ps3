@@ -115,3 +115,8 @@ allocation and slot with identity remapping and produced `0x123456`. This
 confirms the remap state updates on rebind in RPCS3. Vertex texture sampling,
 custom border colors, and alpha kill still need runtime verification. These
 sampler results are RPCS3 observations, not console validation claims.
+
+The PPU packet check in RPCS3 confirmed the Cell GCM command words for the
+no-paranoid fetch mask, alpha-kill control, and linear R32F vertex texture
+binding. It also checked descriptor construction for RGBA32F. Shader fetch
+and the GPU effect of alpha kill remain unverified.

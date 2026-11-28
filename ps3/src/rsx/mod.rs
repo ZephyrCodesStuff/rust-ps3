@@ -41,7 +41,8 @@ pub use sync::{Label, LabelStage, ReportKind, ReportSlot};
 pub use texture::{
     AnisotropicSpacing, AnisotropicSpread, BorderSource, MagFilter, MinFilter, Sampler,
     SignedRemap, TextureChannel, TextureComponent, TextureCoordinates, TextureFormat,
-    TextureLayout, TextureOptions, TextureRemap, TextureRemapOrder, WrapMode,
+    TextureLayout, TextureOptions, TextureRemap, TextureRemapOrder, VertexTextureChannels,
+    WrapMode,
 };
 pub use tiled::{
     Antialias, DepthFormat, Tile, TileCompression, ZCull, ZCullDirection, ZCullFormat,
