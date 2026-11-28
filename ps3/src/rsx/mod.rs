@@ -43,5 +43,8 @@ pub use texture::{
 pub use tiled::{
     Antialias, DepthFormat, Tile, TileCompression, ZCull, ZCullDirection, ZCullFormat,
 };
-pub use transfer::{ImageCopyTarget, ImagePixelSize, ScaleTarget, TransferMemory};
+pub use transfer::{
+    ImageCopyTarget, ImagePixelSize, ScaleTarget, TransferConversion, TransferInterpolation,
+    TransferMemory, TransferOperation, TransferOrigin, TransferScaleFormat, TransferSurfaceFormat,
+};
 pub use types::*;

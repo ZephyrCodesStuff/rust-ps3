@@ -36,6 +36,118 @@ pub enum ScaleTarget {
     Swizzled(TransferSwizzle),
 }
 
+/// Input pixel encoding accepted by the RSX scaler (Cell GCM transfer format).
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TransferScaleFormat {
+    A1R5G5B5 = 1,
+    X1R5G5B5 = 2,
+    A8R8G8B8 = 3,
+    X8R8G8B8 = 4,
+    Cr8Yb8Cb8Ya8 = 5,
+    Yb8Cr8Ya8Cb8 = 6,
+    R5G6B5 = 7,
+    Y8 = 8,
+    Ay8 = 9,
+    EyB8EcR8EyA8EcB8 = 0xA,
+    EcR8EyB8EcB8EyA8 = 0xB,
+    A8B8G8R8 = 0xC,
+    X8B8G8R8 = 0xD,
+}
+
+impl TransferScaleFormat {
+    /// Returns the verified storage size for formats with one value per pixel.
+    /// Packed YUV and AY8 are omitted because their pitch unit is not a simple
+    /// per-texel byte count in the SDK's scaler interface.
+    const fn bytes_per_pixel(self) -> Option<u32> {
+        match self {
+            Self::A1R5G5B5 | Self::X1R5G5B5 | Self::R5G6B5 => Some(2),
+            Self::A8R8G8B8 | Self::X8R8G8B8 | Self::A8B8G8R8 | Self::X8B8G8R8 => Some(4),
+            Self::Y8 => Some(1),
+            _ => None,
+        }
+    }
+}
+
+/// Operation applied by the Cell GCM scaler.
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TransferOperation {
+    SourceCopyAnd = 0,
+    RasterOperationAnd = 1,
+    BlendAnd = 2,
+    SourceCopy = 3,
+    SourceCopyPremultiplied = 4,
+    BlendPremultiplied = 5,
+}
+
+/// Scaler conversion mode.
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TransferConversion {
+    Dither = 0,
+    Truncate = 1,
+    SubtractTruncate = 2,
+}
+
+/// Input coordinate origin used by the scaler.
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TransferOrigin {
+    Center = 1,
+    Corner = 2,
+}
+
+/// Scaler interpolation mode.
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TransferInterpolation {
+    ZeroOrderHold = 0,
+    FirstOrderHold = 1,
+}
+
+/// Output format accepted by a linear transfer surface.
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TransferSurfaceFormat {
+    R5G6B5 = 4,
+    A8R8G8B8 = 0xA,
+    Y32 = 0xB,
+}
+
+// Pin ABI constants to the values in the Cell SDK transfer enums.
+const _: () = {
+    assert!(TransferScaleFormat::A1R5G5B5 as u32 == 1);
+    assert!(TransferScaleFormat::X1R5G5B5 as u32 == 2);
+    assert!(TransferScaleFormat::A8R8G8B8 as u32 == 3);
+    assert!(TransferScaleFormat::X8R8G8B8 as u32 == 4);
+    assert!(TransferScaleFormat::Cr8Yb8Cb8Ya8 as u32 == 5);
+    assert!(TransferScaleFormat::Yb8Cr8Ya8Cb8 as u32 == 6);
+    assert!(TransferScaleFormat::R5G6B5 as u32 == 7);
+    assert!(TransferScaleFormat::Y8 as u32 == 8);
+    assert!(TransferScaleFormat::Ay8 as u32 == 9);
+    assert!(TransferScaleFormat::EyB8EcR8EyA8EcB8 as u32 == 0xA);
+    assert!(TransferScaleFormat::EcR8EyB8EcB8EyA8 as u32 == 0xB);
+    assert!(TransferScaleFormat::A8B8G8R8 as u32 == 0xC);
+    assert!(TransferScaleFormat::X8B8G8R8 as u32 == 0xD);
+    assert!(TransferOperation::SourceCopyAnd as u32 == 0);
+    assert!(TransferOperation::RasterOperationAnd as u32 == 1);
+    assert!(TransferOperation::BlendAnd as u32 == 2);
+    assert!(TransferOperation::SourceCopy as u32 == 3);
+    assert!(TransferOperation::SourceCopyPremultiplied as u32 == 4);
+    assert!(TransferOperation::BlendPremultiplied as u32 == 5);
+    assert!(TransferConversion::Dither as u32 == 0);
+    assert!(TransferConversion::Truncate as u32 == 1);
+    assert!(TransferConversion::SubtractTruncate as u32 == 2);
+    assert!(TransferOrigin::Center as u8 == 1);
+    assert!(TransferOrigin::Corner as u8 == 2);
+    assert!(TransferInterpolation::ZeroOrderHold as u8 == 0);
+    assert!(TransferInterpolation::FirstOrderHold as u8 == 1);
+    assert!(TransferSurfaceFormat::R5G6B5 as u32 == 4);
+    assert!(TransferSurfaceFormat::A8R8G8B8 as u32 == 0xA);
+    assert!(TransferSurfaceFormat::Y32 as u32 == 0xB);
+};
+
 #[derive(Clone, Copy, Debug)]
 pub struct TransferMemory {
     pub location: Location,
@@ -58,16 +170,23 @@ impl TransferMemory {
 }
 
 impl TransferScale {
-    /// Builds an A8R8G8B8 source-copy operation covering the full input image.
-    /// The scaler uses a signed 12.20 step to advance through input pixels.
-    pub fn argb8(
+    /// Builds a scaler operation with explicit Cell GCM formats and modes.
+    /// The input image is scaled in full to `destination`.
+    pub fn configured(
         source: TransferMemory,
         extent: [u16; 2],
         destination: Rect,
-        linear: bool,
+        format: TransferScaleFormat,
+        operation: TransferOperation,
+        conversion: TransferConversion,
+        origin: TransferOrigin,
+        interpolation: TransferInterpolation,
     ) -> Result<Self, Error> {
         let [width, height] = extent;
         let pitch = u16::try_from(source.pitch).map_err(|_| Error::InvalidArgument)?;
+        let row_bytes = format
+            .bytes_per_pixel()
+            .map(|bytes| u32::from(width) * bytes);
         let x = i16::try_from(destination.x).map_err(|_| Error::InvalidArgument)?;
         let y = i16::try_from(destination.y).map_err(|_| Error::InvalidArgument)?;
         if destination.width == 0
@@ -76,14 +195,16 @@ impl TransferScale {
             || width & 1 != 0
             || height == 0
             || height > 2047
-            || u32::from(pitch) < u32::from(width) * 4
+            || pitch == 0
+            || row_bytes.is_some_and(|bytes| u32::from(pitch) < bytes)
+            || row_bytes.is_some_and(|bytes| !source.valid(bytes, u32::from(height)))
         {
             return Err(Error::InvalidArgument);
         }
         Ok(Self {
-            conversion: 1,
-            format: 3,
-            operation: 3,
+            conversion: conversion as u32,
+            format: format as u32,
+            operation: operation as u32,
             clip_x: x,
             clip_y: y,
             clip_width: destination.width,
@@ -97,23 +218,58 @@ impl TransferScale {
             input_width: width,
             input_height: height,
             pitch,
-            origin: 2,
-            interpolation: u8::from(linear),
+            origin: origin as u8,
+            interpolation: interpolation as u8,
             offset: source.offset,
             input_x: 0,
             input_y: 0,
         })
     }
+
+    /// Builds an A8R8G8B8 source-copy operation covering the full input image.
+    /// The scaler uses a signed 12.20 step to advance through input pixels.
+    pub fn argb8(
+        source: TransferMemory,
+        extent: [u16; 2],
+        destination: Rect,
+        linear: bool,
+    ) -> Result<Self, Error> {
+        if u32::try_from(source.pitch)
+            .ok()
+            .is_none_or(|pitch| pitch < u32::from(extent[0]) * 4)
+        {
+            return Err(Error::InvalidArgument);
+        }
+        Self::configured(
+            source,
+            extent,
+            destination,
+            TransferScaleFormat::A8R8G8B8,
+            TransferOperation::SourceCopy,
+            TransferConversion::Truncate,
+            TransferOrigin::Corner,
+            if linear {
+                TransferInterpolation::FirstOrderHold
+            } else {
+                TransferInterpolation::ZeroOrderHold
+            },
+        )
+    }
 }
 
 impl TransferSurface {
-    pub fn argb8(offset: u32, pitch: u16) -> Self {
+    /// Builds a transfer target surface with a typed Cell GCM output format.
+    pub const fn new(format: TransferSurfaceFormat, offset: u32, pitch: u16) -> Self {
         Self {
-            format: 0x0a,
+            format: format as u32,
             pitch,
             reserved: 0,
             offset,
         }
+    }
+
+    pub fn argb8(offset: u32, pitch: u16) -> Self {
+        Self::new(TransferSurfaceFormat::A8R8G8B8, offset, pitch)
     }
 }
 
