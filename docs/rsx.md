@@ -126,3 +126,6 @@ retain their sentinel value; it also checks that a 61-byte output span that
 would overflow the u32 address range is rejected. RPCS3 readback and public
 PS3 hardware results confirm that the line length counts copied bytes and each
 format selects a byte step. [NV0039 hardware results](https://github.com/RPCS3/rpcs3/pull/19190)
+
+A PPU packet check in RPCS3 verified the independent Cell GCM blend factor,
+equation, and constant setters.

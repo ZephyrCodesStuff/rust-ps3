@@ -217,7 +217,61 @@ pub enum LogicOp {
     Set = 0x150f,
 }
 
+const fn pack_blend_pair(color: u16, alpha: u16) -> u32 {
+    color as u32 | (alpha as u32) << 16
+}
+
 impl Context {
+    /// Sets the color and alpha source/destination blend factors independently.
+    ///
+    /// This updates only the two factor registers, preserving the blend equation,
+    /// constants, and enable state. Arguments follow the SDK's `SetBlendFunc`
+    /// order: source color, destination color, source alpha, destination alpha.
+    /// The packet stores color in the low halfword and alpha in the high halfword
+    /// of each factor.
+    pub fn set_blend_functions(
+        &mut self,
+        source_color: BlendFactor,
+        destination_color: BlendFactor,
+        source_alpha: BlendFactor,
+        destination_alpha: BlendFactor,
+    ) -> Result<(), Error> {
+        unsafe {
+            self.write_words(&[&[
+                nv4097::SET_BLEND_FUNC_SFACTOR.header(2, true),
+                pack_blend_pair(source_color as u16, source_alpha as u16),
+                pack_blend_pair(destination_color as u16, destination_alpha as u16),
+            ]])
+        }
+    }
+
+    /// Sets the color and alpha blend equations without changing their factors.
+    pub fn set_blend_equations(
+        &mut self,
+        color: BlendEquation,
+        alpha: BlendEquation,
+    ) -> Result<(), Error> {
+        unsafe {
+            self.write_words(&[&[
+                nv4097::SET_BLEND_EQUATION.header(1, true),
+                pack_blend_pair(color as u16, alpha as u16),
+            ]])
+        }
+    }
+
+    /// Sets both SDK blend constants. The second constant is used by wider
+    /// color formats; both values are passed through as packed color words.
+    pub fn set_blend_colors(&mut self, primary: u32, extended: u32) -> Result<(), Error> {
+        unsafe {
+            self.write_words(&[&[
+                nv4097::SET_BLEND_COLOR.header(1, true),
+                primary,
+                nv4097::SET_BLEND_COLOR2.header(1, true),
+                extended,
+            ]])
+        }
+    }
+
     /// Sets multisample antialiasing and packs the four SDK control fields.
     ///
     /// The 16-bit sample mask occupies bits 16–31; the three flags occupy bits 0, 4,
@@ -373,18 +427,17 @@ impl Context {
         let Some(blend) = blend else {
             return self.set_blend_enabled(false);
         };
-        let pack = |lo, hi| u32::from(lo) | (u32::from(hi) << 16);
         unsafe {
             self.write_words(&[&[
                 packet(0x0310, 5),
                 1,
-                pack(blend.color.source as u16, blend.alpha.source as u16),
-                pack(
+                pack_blend_pair(blend.color.source as u16, blend.alpha.source as u16),
+                pack_blend_pair(
                     blend.color.destination as u16,
                     blend.alpha.destination as u16,
                 ),
                 blend.constant,
-                pack(blend.color.equation as u16, blend.alpha.equation as u16),
+                pack_blend_pair(blend.color.equation as u16, blend.alpha.equation as u16),
                 packet(0x037c, 1),
                 blend.constant_ext,
             ]])
