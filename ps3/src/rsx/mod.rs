@@ -22,7 +22,10 @@ pub mod types;
 pub mod video;
 
 pub use commands::{ClearMask, PixelCenter, WindowOrigin};
-pub use context::{Context, DefaultFifoMode, Error, FlipMode, Method, SystemMode};
+pub use context::{
+    CommandRecorder, Context, DefaultFifoMode, Error, FlipMode, Method, RecordedCommands,
+    SystemMode,
+};
 pub use display::{Framebuffer, Swapchain};
 pub use draw::{
     ImmediateVertex, IndexType, Location, Primitive, Rect, VertexAttribute, VertexType, Viewport,

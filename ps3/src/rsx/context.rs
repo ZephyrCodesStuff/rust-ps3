@@ -9,6 +9,7 @@ use super::{raw, Config, ContextData, Control};
 pub(super) const IO_ALIGN: usize = 1024 * 1024;
 const MAX_METHOD_WORDS: usize = 0x7ff;
 const NON_INCREMENTING: u32 = 1 << 30;
+const RETURN_COMMAND: u32 = 0x0002_0000;
 
 // Internally, GCM retains the address of the slot passed to init_body.
 static mut DEFAULT_CONTEXT: u32 = 0;
@@ -106,6 +107,145 @@ impl Method {
     pub(crate) const fn header(self, count: usize, incrementing: bool) -> u32 {
         let flag = if incrementing { 0 } else { NON_INCREMENTING };
         flag | (count as u32) << 18 | self.0 as u32
+    }
+}
+
+/// Records caller-owned RSX command words without submitting them to GCM.
+///
+/// The recorder never flushes a FIFO or installs a firmware callback. A full
+/// buffer returns [`Error::CommandBufferFull`]; callers can then split the
+/// recording into multiple buffers themselves.
+pub struct CommandRecorder<'a> {
+    buffer: &'a mut [u32],
+    used: usize,
+}
+
+/// An immutable view of the words written by a [`CommandRecorder`].
+///
+/// Recording alone does not require RSX-mapped storage. Before execution,
+/// copy these words to suitably aligned command memory mapped for RSX access,
+/// or record directly into that memory while the CPU owns it. Make CPU writes
+/// visible to the RSX under the platform's cache-coherency rules before
+/// queuing execution. [`Context::flush`] supplies an ordering `sync` barrier,
+/// but does not explicitly clean or write back CPU cache lines. Keep the
+/// allocation and mapping alive until the GPU completes, and reach it with a
+/// valid RSX jump or call target expressed as an I/O offset. A trailing return
+/// word is valid only when entered through an RSX call; executing it as
+/// ordinary FIFO data is invalid.
+pub struct RecordedCommands<'a> {
+    words: &'a [u32],
+}
+
+impl<'a> CommandRecorder<'a> {
+    /// Records a command list in a closure and returns its initialized words.
+    ///
+    /// The supplied slice is exclusively borrowed for the duration of the
+    /// recording and then exposed read-only through the returned view. If the
+    /// closure or a write fails, earlier successful writes remain in the
+    /// backing slice, but no view is returned.
+    pub fn record(
+        buffer: &'a mut [u32],
+        record: impl FnOnce(&mut Self) -> Result<(), Error>,
+    ) -> Result<RecordedCommands<'a>, Error> {
+        let mut recorder = Self::new(buffer);
+        record(&mut recorder)?;
+        Ok(recorder.finish())
+    }
+
+    /// Records a command list and appends the SDK return command.
+    ///
+    /// If the closure, a write, or appending the return command fails, earlier
+    /// successful writes remain in the backing slice, but no view is returned.
+    pub fn record_with_return(
+        buffer: &'a mut [u32],
+        record: impl FnOnce(&mut Self) -> Result<(), Error>,
+    ) -> Result<RecordedCommands<'a>, Error> {
+        let mut recorder = Self::new(buffer);
+        record(&mut recorder)?;
+        recorder.finish_with_return()
+    }
+
+    /// Starts recording into the supplied storage.
+    pub fn new(buffer: &'a mut [u32]) -> Self {
+        Self { buffer, used: 0 }
+    }
+
+    /// Appends already encoded RSX command words.
+    ///
+    /// # Safety
+    ///
+    /// The words must be valid RSX commands, and any referenced GPU resources
+    /// must remain mapped and alive until the RSX has finished executing them.
+    pub unsafe fn write_words(&mut self, words: &[u32]) -> Result<(), Error> {
+        let end = self
+            .used
+            .checked_add(words.len())
+            .ok_or(Error::InvalidArgument)?;
+        if end > self.buffer.len() {
+            return Err(Error::CommandBufferFull);
+        }
+        self.buffer[self.used..end].copy_from_slice(words);
+        self.used = end;
+        Ok(())
+    }
+
+    /// Appends a method header and its argument words.
+    ///
+    /// # Safety
+    ///
+    /// The method, subchannel, arguments and referenced resources must form a
+    /// valid RSX operation and remain valid until execution completes.
+    pub unsafe fn write_method(
+        &mut self,
+        method: Method,
+        incrementing: bool,
+        words: &[u32],
+    ) -> Result<(), Error> {
+        if words.is_empty()
+            || words.len() > MAX_METHOD_WORDS
+            || (incrementing && method.with_offset(((words.len() - 1) * 4) as u16).is_none())
+        {
+            return Err(Error::InvalidArgument);
+        }
+        let end = self
+            .used
+            .checked_add(words.len() + 1)
+            .ok_or(Error::InvalidArgument)?;
+        if end > self.buffer.len() {
+            return Err(Error::CommandBufferFull);
+        }
+        self.buffer[self.used] = method.header(words.len(), incrementing);
+        self.buffer[self.used + 1..end].copy_from_slice(words);
+        self.used = end;
+        Ok(())
+    }
+
+    /// Finishes the recording without adding a control-flow command.
+    pub fn finish(self) -> RecordedCommands<'a> {
+        let Self { buffer, used } = self;
+        RecordedCommands {
+            words: &buffer[..used],
+        }
+    }
+
+    /// Finishes the recording with the SDK's one-word return command.
+    ///
+    /// The command is useful only when the recorded words are reached through
+    /// an RSX call command. It does not submit or execute the buffer.
+    pub fn finish_with_return(mut self) -> Result<RecordedCommands<'a>, Error> {
+        if self.used == self.buffer.len() {
+            return Err(Error::CommandBufferFull);
+        }
+        self.buffer[self.used] = RETURN_COMMAND;
+        self.used += 1;
+        Ok(self.finish())
+    }
+}
+
+impl RecordedCommands<'_> {
+    /// Returns exactly the initialized command words, excluding unused buffer space.
+    pub fn words(&self) -> &[u32] {
+        self.words
     }
 }
 
