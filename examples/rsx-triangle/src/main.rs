@@ -7,8 +7,9 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use ps3::println;
 use ps3::rsx::{
-    video, Buffer, ClearMask, Compare, Context, Error, FlipMode, IoBuffer, LabelStage, Rect,
-    ScaleTarget, Swapchain, TransferMemory, TransferScale, TransferSurface, Viewport,
+    video, Buffer, ClearMask, Compare, Context, Error, FlipMode, IoBuffer, LabelStage, Location,
+    Method, Primitive, Rect, ScaleTarget, Swapchain, TransferMemory, TransferScale,
+    TransferSurface, VertexAttribute, VertexType, Viewport,
 };
 #[cfg(feature = "verify-framebuffer")]
 use ps3::rsx::{Event, EventCallback, ImageCopyTarget, ImagePixelSize};
@@ -19,6 +20,33 @@ const IO_SIZE: usize = MIB;
 const COLOR: u32 = 0xff35_78c8;
 const TEXEL: u32 = 0xff00_dc00;
 const TEX_PITCH: u32 = 64;
+const VERTEX_SHADER: [u32; 20] = [
+    0x401f_9c6c,
+    0x01d0_300d,
+    0x8106_c0c3,
+    0x6040_3f80,
+    0x401f_9c6c,
+    0x01d0_200d,
+    0x8106_c0c3,
+    0x6040_5f80,
+    0x401f_9c6c,
+    0x01d0_100d,
+    0x8106_c0c3,
+    0x6040_9f80,
+    0x401f_9c6c,
+    0x01d0_000d,
+    0x8106_c0c3,
+    0x6041_1f80,
+    0x401f_9c6c,
+    0x0040_030d,
+    0x8106_c083,
+    0x6041_ff85,
+];
+const FRAGMENT_SHADER: [u32; 4] = [0x3e01_0100, 0xc801_1c9d, 0xc800_0001, 0xc800_3fe1];
+const TRIANGLE: [f32; 21] = [
+    0.0, 0.65, 0.0, 1.0, 1.0, 0.1, 0.1, -0.6, -0.5, 0.0, 1.0, 0.1, 1.0, 0.1, 0.6, -0.5, 0.0, 1.0,
+    0.1, 0.2, 1.0,
+];
 static mut IO: IoBuffer<IO_SIZE> = IoBuffer([0; IO_SIZE]);
 static mut TEXTURE_UPLOAD: IoBuffer<IO_SIZE> = IoBuffer([0; IO_SIZE]);
 #[cfg(feature = "verify-framebuffer")]
@@ -76,6 +104,8 @@ fn run() -> Result<(), Error> {
     let first_offset = back.storage().offset();
     let texels = vram.allocate(TEX_PITCH * 4, 128)?;
     let scaled = vram.allocate(TEX_PITCH * 8, 128)?;
+    let mut vertices = vram.allocate(core::mem::size_of_val(&TRIANGLE) as u32, 16)?;
+    let mut fragment_code = vram.allocate(core::mem::size_of_val(&FRAGMENT_SHADER) as u32, 64)?;
     #[cfg(feature = "verify-framebuffer")]
     let mut swizzled = vram.allocate(8 * 8 * 4, 128)?;
     if context.address_to_offset(back.storage().address())? != first_offset {
@@ -171,6 +201,73 @@ fn run() -> Result<(), Error> {
             assert_eq!(swizzled.read_word(6 * 4)?, COLOR);
         }
 
+        vertices.write(0, bytes_of(&TRIANGLE))?;
+        fragment_code.write(0, bytes_of(&FRAGMENT_SHADER))?;
+        let vertex_config = ps3::rsx::shader::cgb::VertexConfiguration {
+            instruction_slot: 0,
+            instruction_count: 5,
+            // Cell SDK Cg's position/color inputs occupy attributes 0 and 3.
+            attribute_input_mask: 0x0009,
+            registers: 1,
+            reserved: 0,
+        };
+        context.load_cgb_vertex_configuration(&vertex_config, bytes_of(&VERTEX_SHADER))?;
+        // Cg assigns modelViewProj to constant rows 256 through 259.
+        context.write_method(
+            Method::new(0x1efc).unwrap(),
+            true,
+            &[
+                256,
+                1.0f32.to_bits(),
+                0,
+                0,
+                0,
+                0,
+                1.0f32.to_bits(),
+                0,
+                0,
+                0,
+                0,
+                1.0f32.to_bits(),
+                0,
+                0,
+                0,
+                0,
+                1.0f32.to_bits(),
+            ],
+        )?;
+        // The SDK VP config has output mask 1; the Cg loader adds bit 5 for
+        // the color varying consumed by the matching fragment program.
+        context.write_method(Method::new(0x1ff4).unwrap(), true, &[0x21])?;
+        let fragment_config = ps3::rsx::shader::cgb::FragmentConfiguration {
+            offset: fragment_code.offset(),
+            // SDK Cg config: attribute mask 5, plus the color varying bit.
+            attribute_input_mask: 0x25,
+            texcoords_2d: 0xffff,
+            // Cg fragment flags at config bytes 19..22 map to 0x440.
+            control: 0x440,
+            registers: 2,
+            ..Default::default()
+        };
+        context.load_cgb_fragment_program(&fragment_config, Location::Local)?;
+        context.set_vertex_attribute(VertexAttribute {
+            slot: 0,
+            components: 4,
+            format: VertexType::F32,
+            stride: 28,
+            frequency: 0,
+            location: Location::Local,
+            offset: vertices.offset(),
+        })?;
+        context.set_vertex_attribute(VertexAttribute {
+            slot: 3,
+            components: 3,
+            format: VertexType::F32,
+            stride: 28,
+            frequency: 0,
+            location: Location::Local,
+            offset: vertices.offset() + 16,
+        })?;
         context.set_surface(&surface)?;
         let viewport = Viewport::for_surface(size.width, size.height);
         context.set_viewport(&viewport)?;
@@ -180,6 +277,7 @@ fn run() -> Result<(), Error> {
         context.set_color_mask([true; 4])?;
         context.set_clear_color(COLOR)?;
         context.clear(ClearMask::COLOR)?;
+        context.draw_arrays(Primitive::Triangles, 0, 3)?;
         draw_done.write(0);
         context.signal_label(&draw_done, LabelStage::Backend, 0x0123_4567)?;
         context.wait_label(&draw_done, 0x0123_4567)?;
@@ -201,13 +299,15 @@ fn run() -> Result<(), Error> {
         let (width, height) = (u32::from(size.width), u32::from(size.height));
         let corner = pixel(0, 0)?;
         let left = pixel(width / 4, height / 2)?;
+        let center = pixel(width / 2, height / 2)?;
         let right = pixel(width * 3 / 4, height / 2)?;
         println!(
-            "RSX framebuffer readback: corner={:06x}, left={:06x}, right={:06x}",
-            corner, left, right
+            "RSX framebuffer readback: corner={:06x}, left={:06x}, center={:06x}, right={:06x}",
+            corner, left, center, right
         );
         assert_eq!(corner, COLOR & 0x00ff_ffff);
         assert_eq!(left, COLOR & 0x00ff_ffff);
+        assert_ne!(center, COLOR & 0x00ff_ffff);
         assert_eq!(right, COLOR & 0x00ff_ffff);
     }
 
@@ -231,8 +331,15 @@ fn run() -> Result<(), Error> {
             .offset(),
         next_offset,
     );
-    println!("RSX clear and flip passed ({}x{})", size.width, size.height);
+    println!(
+        "RSX triangle and flip passed ({}x{})",
+        size.width, size.height
+    );
     Ok(())
+}
+
+fn bytes_of<T>(values: &[T]) -> &[u8] {
+    unsafe { core::slice::from_raw_parts(values.as_ptr().cast(), core::mem::size_of_val(values)) }
 }
 
 #[cfg(feature = "verify-framebuffer")]

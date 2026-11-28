@@ -77,15 +77,19 @@ older SDK's imports, add `--imports-only` with its `--sdk-abi` value.
 | DEX 4.81 | 49 / 49 | 60 / 60 | 74 / 74 |
 | CEX 4.93 | 49 / 49 | 60 / 60 | 74 / 74 |
 
-The example exercises framebuffer setup, clear and flip, main-memory
-mapping, row copies, scaling, swizzled copies, a firmware FIFO refill, a user
-callback, tile and Z-cull setup, and alternate display buffers. With
-`verify-framebuffer` and **Write Color Buffers** enabled, it checks the clear
-color and transfer results. It does not currently submit shader draws.
+The example exercises a native RSX triangle draw, framebuffer setup, clear
+and flip, main-memory mapping, row copies, scaling, swizzled copies, a firmware
+FIFO refill, a user callback, tile and Z-cull setup, and alternate display
+buffers. The triangle uses Rust-authored vertex and fragment instruction
+words with an identity vertex matrix and position/color arrays. Shader
+microcode words are stored in big-endian order and remain in local memory for
+the lifetime of the draw. With `verify-framebuffer` and **Write Color Buffers**
+enabled, it also checks clear color and transfer results.
 
 Cg and CGB shader parsing supports the official SDK formats. GTF decoding
-was checked with single-texture and multi-texture SDK samples. Runtime shader
-upload and draw coverage is being developed separately. Transfer coverage
+was checked with single-texture and multi-texture SDK samples. The triangle
+demonstrates native shader upload and draw submission; broader shader and
+rendering combinations still need runtime coverage. Transfer coverage
 includes pitched subrectangle copies, a swizzled copy crossing a 1024-pixel
 boundary, 128-bit pixels, and narrow mip levels. Physical console tests and one-for-one typed
 wrappers for the remaining GCM command helpers are still open.
