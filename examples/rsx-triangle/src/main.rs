@@ -14,7 +14,8 @@ use ps3::rsx::{
 };
 #[cfg(feature = "verify-framebuffer")]
 use ps3::rsx::{
-    CullFace, Event, EventCallback, FaceWinding, ImageCopyTarget, ImagePixelSize, TransferDataFormat,
+    CullFace, Event, EventCallback, FaceWinding, ImageCopyTarget, ImagePixelSize, StencilAction,
+    TransferDataFormat,
 };
 use ps3::sys::sys_timer_usleep;
 
@@ -441,9 +442,112 @@ fn run() -> Result<(), Error> {
                 );
                 assert_eq!(center, expected & 0x00ff_ffff, "cull case {}", name);
             }
+
+            // Exercise stencil comparisons in non-overlapping vertical strips.
+            // The seed draw writes stencil with color writes disabled, so the
+            // rejected strips retain the clear color. Readback is deferred until
+            // all five draws have completed.
+            context.set_cull_enabled(false)?;
+            context.set_face_winding(FaceWinding::CounterClockwise)?;
+            context.set_scissor(viewport.rect)?;
+            context.set_color_mask([true; 4])?;
+            context.set_stencil_test_enabled(true)?;
+            context.set_two_sided_stencil_enabled(true)?;
+            context.set_stencil_write_mask(0xff)?;
+            context.set_back_stencil_write_mask(0xff)?;
+            context.set_stencil_function(Compare::Always, 0x5a, 0xff)?;
+            context.set_back_stencil_function(Compare::Always, 0x5a, 0xff)?;
+            context.set_stencil_operations(
+                StencilAction::Keep,
+                StencilAction::Keep,
+                StencilAction::Replace,
+            )?;
+            context.set_back_stencil_operations(
+                StencilAction::Keep,
+                StencilAction::Keep,
+                StencilAction::Replace,
+            )?;
+            context.set_clear_color(COLOR)?;
+            context.set_clear_depth_stencil(0x0000_005a)?;
+            context.clear(ClearMask::COLOR | ClearMask::DEPTH | ClearMask::STENCIL)?;
+            context.set_color_mask([false; 4])?;
+            context.draw_arrays(Primitive::Triangles, 0, 3)?;
+            context.set_color_mask([true; 4])?;
+            context.set_stencil_write_mask(0)?;
+            context.set_back_stencil_write_mask(0)?;
+            context.set_stencil_operations(
+                StencilAction::Keep,
+                StencilAction::Keep,
+                StencilAction::Keep,
+            )?;
+            context.set_back_stencil_operations(
+                StencilAction::Keep,
+                StencilAction::Keep,
+                StencilAction::Keep,
+            )?;
+
+            let strip_width = (u32::from(size.width) * 6 / 100).max(1) as u16;
+            let starts = [38u32, 45, 52, 59];
+            let stencil_cases = [
+                ("Never", Compare::Never, 0x5a, COLOR),
+                ("Always", Compare::Always, 0x5a, TEXEL),
+                ("Equal match", Compare::Equal, 0x5a, TEXEL),
+                ("Equal mismatch", Compare::Equal, 0x5b, COLOR),
+            ];
+            for (index, (name, comparison, reference, _expected)) in
+                stencil_cases.iter().copied().enumerate()
+            {
+                context.set_scissor(Rect {
+                    x: (u32::from(size.width) * starts[index] / 100) as u16,
+                    y: 0,
+                    width: strip_width,
+                    height: size.height,
+                })?;
+                context.set_stencil_function(comparison, reference, 0xff)?;
+                context.set_back_stencil_function(comparison, reference, 0xff)?;
+                context.draw_arrays(Primitive::Triangles, 0, 3)?;
+                println!("stencil scissor queued {}", name);
+            }
+            context.set_scissor(viewport.rect)?;
+            draw_done.write(0);
+            context.signal_label(&draw_done, LabelStage::Backend, 0x0123_4520)?;
+            context.wait_label(&draw_done, 0x0123_4520)?;
+            context.finish(0x1234_5690, 30_000)?;
+            for (index, (name, _, _, expected)) in stencil_cases.iter().copied().enumerate() {
+                let x = (u32::from(size.width) * starts[index] / 100)
+                    + u32::from(strip_width) / 2;
+                let y = u32::from(size.height) / 2;
+                let center = back.storage().read_word(back.pitch() * y + x * 4)? & 0x00ff_ffff;
+                println!(
+                    "stencil scissor {} center={:06x} expected={:06x}",
+                    name,
+                    center,
+                    expected & 0x00ff_ffff
+                );
+                assert_eq!(center, expected & 0x00ff_ffff, "stencil scissor {}", name);
+            }
+
             // Restore the original pipeline state before the example's regular draw.
             context.set_cull_enabled(false)?;
             context.set_face_winding(FaceWinding::CounterClockwise)?;
+            context.set_scissor(viewport.rect)?;
+            context.set_color_mask([true; 4])?;
+            context.set_stencil_test_enabled(false)?;
+            context.set_two_sided_stencil_enabled(false)?;
+            context.set_stencil_write_mask(0xff)?;
+            context.set_back_stencil_write_mask(0xff)?;
+            context.set_stencil_function(Compare::Always, 0, 0xff)?;
+            context.set_back_stencil_function(Compare::Always, 0, 0xff)?;
+            context.set_stencil_operations(
+                StencilAction::Keep,
+                StencilAction::Keep,
+                StencilAction::Keep,
+            )?;
+            context.set_back_stencil_operations(
+                StencilAction::Keep,
+                StencilAction::Keep,
+                StencilAction::Keep,
+            )?;
         }
         context.clear(ClearMask::COLOR)?;
         context.draw_arrays(Primitive::Triangles, 0, 3)?;
