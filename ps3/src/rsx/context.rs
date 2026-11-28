@@ -110,6 +110,24 @@ impl Method {
     }
 }
 
+fn validate_method_packet(
+    method: Method,
+    incrementing: bool,
+    payload_words: usize,
+) -> Result<(), Error> {
+    if payload_words == 0
+        || payload_words > MAX_METHOD_WORDS
+        || (incrementing
+            && method
+                .with_offset(((payload_words - 1) * 4) as u16)
+                .is_none())
+    {
+        Err(Error::InvalidArgument)
+    } else {
+        Ok(())
+    }
+}
+
 /// Records caller-owned RSX command words without submitting them to GCM.
 ///
 /// The recorder never flushes a FIFO or installs a firmware callback. A full
@@ -201,12 +219,7 @@ impl<'a> CommandRecorder<'a> {
         incrementing: bool,
         words: &[u32],
     ) -> Result<(), Error> {
-        if words.is_empty()
-            || words.len() > MAX_METHOD_WORDS
-            || (incrementing && method.with_offset(((words.len() - 1) * 4) as u16).is_none())
-        {
-            return Err(Error::InvalidArgument);
-        }
+        validate_method_packet(method, incrementing, words.len())?;
         let end = self
             .used
             .checked_add(words.len() + 1)
@@ -216,6 +229,44 @@ impl<'a> CommandRecorder<'a> {
         }
         self.buffer[self.used] = method.header(words.len(), incrementing);
         self.buffer[self.used + 1..end].copy_from_slice(words);
+        self.used = end;
+        Ok(())
+    }
+
+    /// Appends a method packet by filling its zero-initialized payload in place.
+    ///
+    /// The method header and recorder cursor advance only when `fill` returns
+    /// `Ok`. An error or an unwinding panic leaves the packet uncommitted; the
+    /// backing slice may contain scratch words beyond the recorder's used range.
+    ///
+    /// # Safety
+    ///
+    /// The method, subchannel and completed payload must form a valid RSX
+    /// operation, and any referenced resources must remain valid until
+    /// execution completes.
+    pub unsafe fn write_method_with_payload(
+        &mut self,
+        method: Method,
+        incrementing: bool,
+        payload_words: usize,
+        fill: impl FnOnce(&mut [u32]) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        validate_method_packet(method, incrementing, payload_words)?;
+        let total_words = payload_words + 1;
+        let end = self
+            .used
+            .checked_add(total_words)
+            .ok_or(Error::InvalidArgument)?;
+        if end > self.buffer.len() {
+            return Err(Error::CommandBufferFull);
+        }
+
+        let header_index = self.used;
+        let payload = &mut self.buffer[header_index + 1..end];
+        payload.fill(0);
+        fill(payload)?;
+
+        self.buffer[header_index] = method.header(payload_words, incrementing);
         self.used = end;
         Ok(())
     }
@@ -494,13 +545,46 @@ impl Context {
         incrementing: bool,
         words: &[u32],
     ) -> Result<(), Error> {
-        if words.is_empty()
-            || words.len() > MAX_METHOD_WORDS
-            || (incrementing && method.with_offset(((words.len() - 1) * 4) as u16).is_none())
-        {
-            return Err(Error::InvalidArgument);
-        }
+        validate_method_packet(method, incrementing, words.len())?;
         unsafe { self.write_words(&[&[method.header(words.len(), incrementing)], words]) }
+    }
+
+    /// Appends one method packet by filling its initialized FIFO payload in place.
+    ///
+    /// The payload is zero-initialized before `fill` runs. The method header
+    /// and FIFO cursor are committed only if `fill` returns `Ok`; an error or
+    /// an unwinding panic leaves the packet uncommitted. The reserved storage
+    /// may contain scratch words after a failed fill, but later writes reuse
+    /// that space. Reserving can invoke the context's normal refill callback
+    /// before `fill` runs; any cursor change or submission from that refill is
+    /// not rolled back if filling fails. This packet itself stays uncommitted.
+    ///
+    /// # Safety
+    ///
+    /// The method, subchannel and completed payload must form a valid
+    /// operation for the current GPU state. Any referenced resources must
+    /// remain valid until execution completes.
+    pub unsafe fn write_method_with_payload(
+        &mut self,
+        method: Method,
+        incrementing: bool,
+        payload_words: usize,
+        fill: impl FnOnce(&mut [u32]) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        validate_method_packet(method, incrementing, payload_words)?;
+        let total_words = payload_words + 1;
+        let address = self.reserve(total_words)? as usize as *mut u32;
+        let payload = unsafe { address.add(1) };
+        unsafe { payload.write_bytes(0, payload_words) };
+        let payload = unsafe { core::slice::from_raw_parts_mut(payload, payload_words) };
+        fill(payload)?;
+
+        unsafe {
+            address.write(method.header(payload_words, incrementing));
+            let current = address.add(total_words) as usize as u32;
+            (*self.as_raw()).current = current;
+        }
+        Ok(())
     }
 
     /// Publishes the FIFO's DMA put pointer after issuing a CPU memory barrier.
