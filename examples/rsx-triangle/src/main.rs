@@ -246,6 +246,8 @@ fn run() -> Result<(), Error> {
     let surface = back.surface(&depth)?;
     let first_offset = back.storage().offset();
     let texels = vram.allocate(TEX_PITCH * 4, 128)?;
+    #[cfg(feature = "verify-framebuffer")]
+    let rgb565_texels = vram.allocate(TEX_PITCH * 4, 128)?;
     let scaled = vram.allocate(TEX_PITCH * 8, 128)?;
     let mut vertices = vram.allocate(core::mem::size_of_val(&TRIANGLE) as u32, 16)?;
     let mut fragment_code =
@@ -288,6 +290,15 @@ fn run() -> Result<(), Error> {
         };
         context.copy_rows(region(&upload), region(&texels), 16, 4)?;
         context.finish(0x1234_5677, 30_000)?;
+        #[cfg(feature = "verify-framebuffer")]
+        {
+            // Upload raw big-endian R5G6B5 texels for a direct fragment sample.
+            for row in 0..4 {
+                upload.write(row * TEX_PITCH, [0xf800u16.to_be_bytes(); 4].as_flattened())?;
+            }
+            context.copy_rows(region(&upload), region(&rgb565_texels), 8, 4)?;
+            context.finish(0x1234_5679, 30_000)?;
+        }
         upload.unmap_main()?;
         let scaler = TransferScale::argb8(
             region(&texels),
@@ -378,6 +389,14 @@ fn run() -> Result<(), Error> {
             ..Sampler::default()
         };
         let texture = Texture::linear_argb8(texels.location(), texels.offset(), 4, 4, TEX_PITCH)?;
+        #[cfg(feature = "verify-framebuffer")]
+        let rgb565 = Texture::linear_rgb565(
+            rgb565_texels.location(),
+            rgb565_texels.offset(),
+            4,
+            4,
+            TEX_PITCH,
+        )?;
         context.bind_texture(0, &texture, &sampler)?;
         context.set_vertex_attribute(VertexAttribute {
             slot: 0,
@@ -548,6 +567,23 @@ fn run() -> Result<(), Error> {
                 StencilAction::Keep,
                 StencilAction::Keep,
             )?;
+        }
+        #[cfg(feature = "verify-framebuffer")]
+        {
+            context.bind_texture(0, &rgb565, &sampler)?;
+            context.clear(ClearMask::COLOR)?;
+            context.draw_arrays(Primitive::Triangles, 0, 3)?;
+            draw_done.write(0);
+            context.signal_label(&draw_done, LabelStage::Backend, 0x0123_4530)?;
+            context.wait_label(&draw_done, 0x0123_4530)?;
+            context.finish(0x1234_5691, 30_000)?;
+
+            let center = back.storage().read_word(
+                back.pitch() * (u32::from(size.height) / 2) + (u32::from(size.width) / 2) * 4,
+            )? & 0x00ff_ffff;
+            assert_eq!(center, 0x00ff_0000, "RGB565 direct texture sample");
+            println!("RGB565 direct texture sample: center={:06x}", center);
+            context.bind_texture(0, &texture, &sampler)?;
         }
         context.clear(ClearMask::COLOR)?;
         context.draw_arrays(Primitive::Triangles, 0, 3)?;

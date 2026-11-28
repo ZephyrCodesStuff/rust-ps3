@@ -209,12 +209,17 @@ probes without establishing their root cause.
 The fragment control FIFO check confirmed the TXP toggle, minimum register
 count, and rejection of counts above 48.
 
+The framebuffer example uploads big-endian RGB565 words and samples the
+texture directly in a fragment program. A red texel (`0xf800`) produces
+`0xff0000` in the framebuffer. A separate same-format RGB565 transfer
+preserved the source words.
+
 An SDK packet review confirmed the RGB565 transfer command words. In RPCS3's
-forced CPU-blit path, big-endian red, green, blue, and white source words read
-back as `0xff001cc6`, `0xffe70039`, `0xff18e300`, and `0xffffffff`. Feeding the
-byte-swapped words through scratch storage produced the expected colors. The
-current Vulkan-default probe produced no readback. This records an observed
-backend byte-order discrepancy; Rust code was not changed.
+forced CPU-blit path, RGB565-to-ARGB8888 conversion read big-endian red,
+green, blue, and white source words as `0xff001cc6`, `0xffe70039`,
+`0xff18e300`, and `0xffffffff`. Feeding byte-swapped words through scratch
+storage produced the expected colors. The Vulkan-default conversion probe
+produced no readback. The Rust texture API uses the SDK format encoding.
 
 The SDK Cg datatype enum check corrected the numeric IDs used by fragment
 parameter DMA. All 18 supported float and boolean type cases passed. The
