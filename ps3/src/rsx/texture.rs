@@ -250,6 +250,29 @@ impl Sampler {
     }
 }
 
+fn texture_address_word(sampler: &Sampler, options: TextureOptions) -> u32 {
+    let [s, t, r] = sampler.wrap.map(|coordinate| coordinate as u32);
+    s | (u32::from(options.anisotropic_bias) << 4)
+        | (t << 8)
+        | (r << 16)
+        | (u32::from(sampler.unsigned_remap) << 12)
+        | (u32::from(sampler.gamma) << 20)
+        | ((options.signed_remap as u32) << 24)
+        | (u32::from(sampler.compare) << 28)
+}
+
+fn texture_filter_word(sampler: &Sampler, signed_channels: [bool; 4]) -> u32 {
+    let [a, red, green, blue] = signed_channels.map(u32::from);
+    (a << 28)
+        | (red << 29)
+        | (green << 30)
+        | (blue << 31)
+        | ((sampler.mag_filter as u32) << 24)
+        | ((sampler.min_filter as u32) << 16)
+        | (u32::from(sampler.convolution) << 13)
+        | (u32::from(sampler.lod_bias as u16) & 0x1fff)
+}
+
 impl Texture {
     /// Describes one level of linear A8R8G8B8 data with normalized coordinates.
     pub fn linear_argb8(
@@ -442,15 +465,7 @@ impl Context {
         {
             return Err(Error::InvalidArgument);
         }
-        let [s, t, r] = sampler.wrap.map(|coordinate| coordinate as u32);
-        let wrap = s
-            | (u32::from(options.anisotropic_bias) << 4)
-            | (t << 8)
-            | (r << 16)
-            | (u32::from(sampler.unsigned_remap) << 12)
-            | (u32::from(sampler.gamma) << 20)
-            | ((options.signed_remap as u32) << 24)
-            | (u32::from(sampler.compare) << 28);
+        let wrap = texture_address_word(sampler, options);
         let control = texture_control_word(
             true,
             min_lod,
@@ -458,15 +473,7 @@ impl Context {
             sampler.anisotropy,
             options.alpha_kill,
         );
-        let [a, red, green, blue] = options.signed_channels.map(u32::from);
-        let filter = (a << 28)
-            | (red << 29)
-            | (green << 30)
-            | (blue << 31)
-            | ((sampler.mag_filter as u32) << 24)
-            | ((sampler.min_filter as u32) << 16)
-            | (u32::from(sampler.convolution) << 13)
-            | (u32::from(sampler.lod_bias as u16) & 0x1fff);
+        let filter = texture_filter_word(sampler, options.signed_channels);
         let base = 0x1a00 + u16::from(slot) * 32;
         unsafe {
             self.write_words(&[&[
@@ -488,6 +495,45 @@ impl Context {
         }
     }
 
+    /// Sets a fragment sampler's filter, signed-channel flags, and LOD bias
+    /// without changing its texture binding or other sampler methods.
+    pub fn set_texture_filter_signed(
+        &mut self,
+        slot: u8,
+        sampler: &Sampler,
+        signed_channels: [bool; 4],
+    ) -> Result<(), Error> {
+        if slot >= 16
+            || !(-4096..=4095).contains(&sampler.lod_bias)
+            || sampler.convolution > 3
+        {
+            return Err(Error::InvalidArgument);
+        }
+        let value = texture_filter_word(sampler, signed_channels);
+        let address = nv4097::SET_TEXTURE_FILTER.address() + u16::from(slot) * 32;
+        unsafe { self.write_words(&[&[packet(address, 1), value]]) }
+    }
+
+    /// Sets a fragment sampler's address, unsigned and signed remaps,
+    /// comparison, gamma, and anisotropic bias state independently.
+    pub fn set_texture_address_aniso_bias_remap(
+        &mut self,
+        slot: u8,
+        sampler: &Sampler,
+        options: TextureOptions,
+    ) -> Result<(), Error> {
+        if slot >= 16
+            || sampler.compare > 7
+            || sampler.gamma > 15
+            || options.anisotropic_bias > 15
+        {
+            return Err(Error::InvalidArgument);
+        }
+        let value = texture_address_word(sampler, options);
+        let address = nv4097::SET_TEXTURE_ADDRESS.address() + u16::from(slot) * 32;
+        unsafe { self.write_words(&[&[packet(address, 1), value]]) }
+    }
+
     /// Configures the quality hints for isotropic and anisotropic sampling.
     pub fn set_texture_optimization(
         &mut self,
@@ -496,7 +542,7 @@ impl Context {
         isotropic_high: bool,
         anisotropic_high: bool,
     ) -> Result<(), Error> {
-        if slot >= 16 || slope >= 64 {
+        if slot >= 16 || slope >= 32 {
             return Err(Error::InvalidArgument);
         }
         let value = 0x2d00

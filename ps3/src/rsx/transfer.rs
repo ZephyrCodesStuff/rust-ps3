@@ -286,6 +286,19 @@ impl TransferSurface {
 }
 
 impl Context {
+    /// Selects local or main memory as the destination for subsequent raw
+    /// NV3062 surface transfers. The higher-level copy and scale helpers set
+    /// their own destinations as part of each operation.
+    pub fn set_transfer_location(&mut self, location: Location) -> Result<(), Error> {
+        unsafe {
+            self.write_method(
+                nv3062::SET_CONTEXT_DMA_IMAGE_DESTIN,
+                true,
+                &[DMA_LOCAL + location as u32],
+            )
+        }
+    }
+
     /// Copies an unscaled rectangle from a pitched source image to a pitched
     /// or swizzled destination. Linear targets support 16- and 32-bit pixels.
     /// Swizzled targets also support 64- and 128-bit pixels.
