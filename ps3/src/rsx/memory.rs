@@ -184,6 +184,87 @@ impl Context {
         })
     }
 
+    /// Maps an application allocation at a caller-selected RSX I/O offset.
+    ///
+    /// `offset` and `size` must describe a range accepted by GCM and must not
+    /// overlap another mapping. The offset must satisfy the GCM I/O alignment
+    /// requirements. The returned buffer's offset is the requested value.
+    ///
+    /// # Safety
+    ///
+    /// The allocation must be valid, aligned, exclusively mapped at this I/O
+    /// range, and remain at a stable address until the mapping is removed and
+    /// all GPU work using it has completed.
+    pub unsafe fn map_main_at(
+        &mut self,
+        memory: *mut u8,
+        size: u32,
+        offset: u32,
+    ) -> Result<Buffer, Error> {
+        self.map_main_at_impl(memory, size, offset, None)
+    }
+
+    /// Maps an allocation at a caller-selected RSX I/O offset with GCM user
+    /// mapping flags.
+    ///
+    /// The meaning of `user_flags` is defined by the SDK/runtime contract.
+    /// The returned buffer's offset is the requested value.
+    ///
+    /// # Safety
+    ///
+    /// The allocation must be valid, aligned, exclusively mapped at this I/O
+    /// range, and remain at a stable address until the mapping is removed and
+    /// all GPU work using it has completed. `user_flags` must be valid for
+    /// the target SDK and mapping.
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
+    pub unsafe fn map_main_at_with_flags(
+        &mut self,
+        memory: *mut u8,
+        size: u32,
+        offset: u32,
+        user_flags: u32,
+    ) -> Result<Buffer, Error> {
+        self.map_main_at_impl(memory, size, offset, Some(user_flags))
+    }
+
+    /// Returns the effective address corresponding to a mapped RSX I/O
+    /// offset.
+    pub fn io_offset_to_address(&self, offset: u32) -> Result<u32, Error> {
+        let mut address = 0;
+        unsafe { Error::status(raw::io_offset_to_address(offset, &mut address))? };
+        Ok(address)
+    }
+
+    /// Reserves additional RSX I/O mapping space from GCM's mapping pool.
+    ///
+    /// Available with the SDK 3.70 ABI.
+    ///
+    /// # Safety
+    ///
+    /// Coordinate reservations with every other user of the process GCM
+    /// mapping pool. Do not reserve space already allocated or reserved.
+    #[cfg(feature = "sdk-370")]
+    pub unsafe fn reserve_io_map_size(&mut self, size: u32) -> Result<(), Error> {
+        unsafe { Error::status(raw::reserve_io_map_size(size)) }
+    }
+
+    /// Releases a previous reservation from GCM's RSX I/O mapping pool.
+    ///
+    /// # Safety
+    ///
+    /// `size` must match space previously reserved by this process and must
+    /// not include space still used by an I/O mapping.
+    #[cfg(feature = "sdk-370")]
+    pub unsafe fn unreserve_io_map_size(&mut self, size: u32) -> Result<(), Error> {
+        unsafe { Error::status(raw::unreserve_io_map_size(size)) }
+    }
+
+    /// Returns the maximum RSX I/O mapping size supported by GCM, in bytes.
+    #[cfg(feature = "sdk-370")]
+    pub fn max_io_map_size(&self) -> u32 {
+        unsafe { raw::get_max_io_map_size() }
+    }
+
     /// Maps an application allocation at the RSX main report table's fixed
     /// I/O address. Each report consumes 16 bytes of the mapped range.
     ///
@@ -212,14 +293,29 @@ impl Context {
         unsafe { self.map_main_at(memory, IO_ALIGN as u32, NOTIFY_IO_BASE) }
     }
 
-    unsafe fn map_main_at(
+    unsafe fn map_main_at_impl(
         &mut self,
         memory: *mut u8,
         size: u32,
         offset: u32,
+        user_flags: Option<u32>,
     ) -> Result<Buffer, Error> {
         let address = mapping_address(memory, size)?;
-        unsafe { Error::status(raw::map_ea_io_address(memory.cast(), offset, size))? };
+        if offset as usize % IO_ALIGN != 0 || offset.checked_add(size - 1).is_none() {
+            return Err(Error::InvalidArgument);
+        }
+        match user_flags {
+            #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
+            Some(flags) => unsafe {
+                Error::status(raw::map_ea_io_address_with_flags(
+                    memory.cast(),
+                    offset,
+                    size,
+                    flags,
+                ))?
+            },
+            _ => unsafe { Error::status(raw::map_ea_io_address(memory.cast(), offset, size))? },
+        }
         Ok(Buffer {
             location: Location::Main,
             address,
