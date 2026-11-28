@@ -241,6 +241,45 @@ impl Context {
         Ok(())
     }
 
+    /// Writes a sequence of vertex constant components beginning at `start`.
+    /// At most 32 components are sent per packet, and a final partial
+    /// register contains only the supplied components.
+    ///
+    /// An empty slice emits no FIFO data.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidArgument`] if the components would extend past
+    /// register `c467`.
+    pub fn set_vertex_constant_components(
+        &mut self,
+        start: u16,
+        values: &[f32],
+    ) -> Result<(), Error> {
+        let registers = values.len().checked_add(3).ok_or(Error::InvalidArgument)? / 4;
+        if usize::from(start)
+            .checked_add(registers)
+            .is_none_or(|end| end > 468)
+        {
+            return Err(Error::InvalidArgument);
+        }
+
+        let mut words = [0; 32];
+        for (block, values) in values.chunks(32).enumerate() {
+            for (word, value) in words.iter_mut().zip(values) {
+                *word = value.to_bits();
+            }
+            let slot = u32::from(start) + block as u32 * 8;
+            unsafe {
+                self.write_words(&[
+                    &[packet(0x1efc, values.len() + 1), slot],
+                    &words[..values.len()],
+                ])?;
+            }
+        }
+        Ok(())
+    }
+
     /// Fills one packet of consecutive vertex constants (`c0`–`c467`) in
     /// place. `count` may be 1 through 8; zero is a no-op and does not call
     /// `fill`, matching the empty-slice behavior of [`Self::set_vertex_constants`].
