@@ -241,6 +241,56 @@ impl Context {
         Ok(())
     }
 
+    /// Fills one packet of consecutive vertex constants (`c0`–`c467`) in
+    /// place. `count` may be 1 through 8; zero is a no-op and does not call
+    /// `fill`, matching the empty-slice behavior of [`Self::set_vertex_constants`].
+    ///
+    /// The callback receives exactly `count` writable `[x, y, z, w]`
+    /// registers backed by the command payload, avoiding an intermediate
+    /// stack buffer or copy.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`Error::InvalidArgument`] if `count` exceeds eight or the
+    /// requested register range extends past `c467`.
+    pub fn set_vertex_constants_with(
+        &mut self,
+        start: u16,
+        count: usize,
+        fill: impl FnOnce(&mut [[f32; 4]]) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        if count > 8
+            || usize::from(start)
+                .checked_add(count)
+                .is_none_or(|end| end > 468)
+        {
+            return Err(Error::InvalidArgument);
+        }
+        if count == 0 {
+            return Ok(());
+        }
+
+        let payload_words = 1 + count * 4;
+        unsafe {
+            self.write_method_with_payload(
+                super::methods::nv4097::SET_TRANSFORM_CONSTANT_LOAD,
+                true,
+                payload_words,
+                |payload| {
+                    payload[0] = u32::from(start);
+                    // The payload is u32-aligned and every f32 bit pattern is
+                    // valid, so the initialized words can be viewed directly
+                    // as the typed register array.
+                    let registers = core::slice::from_raw_parts_mut(
+                        payload[1..].as_mut_ptr().cast::<[f32; 4]>(),
+                        count,
+                    );
+                    fill(registers)
+                },
+            )
+        }
+    }
+
     pub(super) unsafe fn emit_fragment_config(
         &mut self,
         config: &cgb::FragmentConfiguration,

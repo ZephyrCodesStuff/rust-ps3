@@ -9,6 +9,7 @@ const DRAW_INDEXED: u16 = 0x1824;
 const INVALIDATE_VERTEX_CACHE: u16 = 0x1714;
 const MAX_DRAW_INDEX: u32 = 0x00ff_ffff;
 const MAX_INLINE_INDEX_COUNT: usize = 0x000f_ffff;
+const MAX_METHOD_COUNT: usize = 0x7ff;
 
 /// The GPU memory space containing a resource.
 #[repr(u8)]
@@ -379,6 +380,100 @@ impl Context {
                 self.write_method(nv4097::ARRAY_ELEMENT16, false, &packed[..block.len() / 2])?;
             }
             self.write_words(&[&[packet(BEGIN_END, 1), 0]])
+        }
+    }
+
+    /// Reserves one SDK-style inline array payload in the FIFO and lets the
+    /// caller fill its words in place. The draw packet, payload and end marker
+    /// are committed together, so an error from `fill` cannot leave an open
+    /// primitive in the command stream.
+    ///
+    /// `word_count` is the number of 32-bit FIFO words (not vertices). It is
+    /// limited to one RSX method packet, matching GCM's
+    /// `SetDrawInlineArrayPointer` helper.
+    ///
+    /// # Safety
+    /// The words written by `fill` must match the active vertex formats and
+    /// encode a whole number of vertices.
+    pub unsafe fn draw_inline_with(
+        &mut self,
+        primitive: Primitive,
+        word_count: usize,
+        fill: impl FnOnce(&mut [u32]) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        unsafe { self.draw_inline_payload_with(primitive, nv4097::INLINE_ARRAY, word_count, fill) }
+    }
+
+    /// Reserves one SDK-style 32-bit inline index payload in the FIFO and
+    /// lets the caller fill it in place. The draw and its end marker commit
+    /// together only after `fill` succeeds.
+    ///
+    /// # Safety
+    /// Every index written by `fill` must refer to live bound vertex data.
+    pub unsafe fn draw_inline_indices_with(
+        &mut self,
+        primitive: Primitive,
+        index_count: usize,
+        fill: impl FnOnce(&mut [u32]) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        unsafe {
+            self.draw_inline_payload_with(primitive, nv4097::ARRAY_ELEMENT32, index_count, fill)
+        }
+    }
+
+    /// Reserves one SDK-style 16-bit inline index payload in the FIFO. Each
+    /// payload word holds two indices, with the first index in its low half.
+    /// The closure therefore fills packed 32-bit words, matching the FIFO
+    /// representation used by `SetDrawInlineIndexArray16Pointer`.
+    ///
+    /// # Safety
+    /// Every index encoded by `fill` must refer to live bound vertex data.
+    pub unsafe fn draw_inline_indices_u16_words_with(
+        &mut self,
+        primitive: Primitive,
+        packed_word_count: usize,
+        fill: impl FnOnce(&mut [u32]) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        unsafe {
+            self.draw_inline_payload_with(
+                primitive,
+                nv4097::ARRAY_ELEMENT16,
+                packed_word_count,
+                fill,
+            )
+        }
+    }
+
+    unsafe fn draw_inline_payload_with(
+        &mut self,
+        primitive: Primitive,
+        method: Method,
+        payload_words: usize,
+        fill: impl FnOnce(&mut [u32]) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        if payload_words == 0 {
+            return Ok(());
+        }
+        if payload_words > MAX_METHOD_COUNT {
+            return Err(Error::InvalidArgument);
+        }
+
+        // Six words begin the draw (three invalidates plus begin/end), then
+        // one method header and the caller's data, followed by the end marker.
+        let total_words = 9 + payload_words;
+        unsafe {
+            self.write_words_with_payload(total_words, |stream| {
+                fill(&mut stream[7..7 + payload_words])?;
+                stream[0] = Method::new(INVALIDATE_VERTEX_CACHE)
+                    .unwrap()
+                    .header(3, false);
+                stream[4] = packet(BEGIN_END, 1);
+                stream[5] = primitive as u32;
+                stream[6] = method.header(payload_words, false);
+                stream[7 + payload_words] = packet(BEGIN_END, 1);
+                stream[8 + payload_words] = 0;
+                Ok(())
+            })
         }
     }
 

@@ -531,6 +531,35 @@ impl Context {
         u32::try_from(status).map_err(|_| Error::Firmware(status))
     }
 
+    /// Reserves a complete command stream and advances the FIFO cursor only
+    /// after `fill` succeeds.
+    ///
+    /// The reserved words are zero-initialized first. If `fill` returns an
+    /// error or unwinds, the cursor is not advanced and the next write reuses
+    /// this space; the scratch bytes can still be visible to memory inspectors.
+    /// Reserving may invoke the normal refill callback before `fill` runs, and
+    /// any cursor change or submission from that callback is not rolled back.
+    ///
+    /// # Safety
+    ///
+    /// The completed words must form valid RSX commands, and any referenced
+    /// resources must remain valid until execution completes.
+    pub(crate) unsafe fn write_words_with_payload(
+        &mut self,
+        total_words: usize,
+        fill: impl FnOnce(&mut [u32]) -> Result<(), Error>,
+    ) -> Result<(), Error> {
+        if total_words == 0 {
+            return Err(Error::InvalidArgument);
+        }
+        let address = self.reserve(total_words)? as usize as *mut u32;
+        unsafe { address.write_bytes(0, total_words) };
+        let words = unsafe { core::slice::from_raw_parts_mut(address, total_words) };
+        fill(words)?;
+        unsafe { (*self.as_raw()).current = address.add(total_words) as usize as u32 };
+        Ok(())
+    }
+
     /// Writes a raw method packet. The caller specifies whether the RSX
     /// should advance the method address after each word.
     ///
