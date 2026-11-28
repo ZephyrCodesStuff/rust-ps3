@@ -112,9 +112,14 @@ notifications, and the SDK-like conditional occlusion smoke were checked in
 RPCS3. On one unchanged render target, the sampler smoke produced the expected
 red/blue-remapped center value `0x563412`, then rebound the same texture
 allocation and slot with identity remapping and produced `0x123456`. This
-confirms the remap state updates on rebind in RPCS3. Vertex texture sampling,
-custom border colors, and alpha kill still need runtime verification. These
-sampler results are RPCS3 observations, not console validation claims.
+confirms the remap state updates on rebind in RPCS3. A separate local Vulkan
+run tested the same outside UV (`S = 1.5`) with `ClampToEdge` and
+`ClampToBorder`: the edge control returned `0x123456`, and opaque white border
+color returned `0xffffff`. A custom `0xffc02200` border returned black. The
+local Vulkan device did not advertise `VK_EXT_custom_border_color`; the run did
+not verify that the missing extension caused the black result. Vertex texture
+sampling and alpha kill remain unverified. These are backend observations,
+not console validation claims.
 The PPU packet check in RPCS3 confirmed the Cell GCM command words for the
 no-paranoid fetch mask, alpha-kill control, and linear R32F vertex texture
 binding. It also checked descriptor construction for RGBA32F.
