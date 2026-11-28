@@ -1,3 +1,5 @@
+#[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
+use core::ptr::addr_of;
 use core::ptr::{addr_of_mut, NonNull};
 
 use crate::sys::raw::PpuFunctionDescriptor;
@@ -364,6 +366,8 @@ impl Context {
     /// RSX and stay mapped and exclusively reserved for as long as GCM uses
     /// it. The caller must serialize access to the default context and GPU,
     /// including firmware calls and any callbacks that use either.
+    /// GCM retains the address of its context slot for the process lifetime;
+    /// the returned handle refers to that initialized default context.
     pub unsafe fn init(command_bytes: u32, io: &'static mut [u8]) -> Result<Self, Error> {
         let io_bytes = u32::try_from(io.len()).map_err(|_| Error::InvalidArgument)?;
         if io.as_ptr() as usize % IO_ALIGN != 0
@@ -402,6 +406,107 @@ impl Context {
 
     pub fn as_raw(&self) -> *mut ContextData {
         self.data.as_ptr()
+    }
+
+    /// Restarts the initialized default command FIFO and reapplies its current
+    /// command-buffer and segment sizes.
+    ///
+    /// This follows the SDK's `ResetDefaultCommandBuffer` sequence: enqueue a
+    /// jump to the FIFO initialization state, publish that state through the
+    /// control register, wait until the RSX reaches it, then reapply the
+    /// current default sizes. The sizes are measured in 32-bit words.
+    /// A firmware sizing error is returned after the RSX reaches the
+    /// initialization state. A zero timeout still performs one immediate
+    /// `get` check and can complete the reset if the RSX is already there.
+    ///
+    /// # Safety
+    ///
+    /// This context must be the initialized default GCM context. No other
+    /// thread may access GCM or the default FIFO while this runs. The caller
+    /// must ensure all work submitted through the default FIFO and all
+    /// resources it references are safe to retire before restarting it.
+    /// Keep resources referenced by any queued GPU work alive until that work
+    /// has completed. A timeout can occur after the jump was queued and the
+    /// control register updated; the FIFO may therefore already be restarting
+    /// when `Error::Timeout` is returned.
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
+    pub unsafe fn reset_default_command_buffer(&mut self, timeout_us: u32) -> Result<(), Error> {
+        self.reset_default_command_buffer_to_initial_state(timeout_us)?;
+        let command_words = unsafe { raw::get_default_command_word_size() };
+        let segment_words = unsafe { raw::get_default_segment_word_size() };
+        let status = unsafe { raw::set_default_fifo_size(command_words, segment_words) };
+        Error::status(status)
+    }
+
+    /// Restarts the default FIFO, then applies explicit command-buffer and
+    /// segment sizes measured in 32-bit words.
+    ///
+    /// This uses the SDK reset ordering before calling
+    /// `cellGcmSetDefaultFifoSize`. Firmware validates the requested sizes;
+    /// an invalid size can therefore return [`Error::Firmware`] after the RSX
+    /// has reached the FIFO initialization state. Check the firmware's size
+    /// constraints and ensure the command allocation supplied to
+    /// [`Context::init`] can hold the requested command buffer before calling.
+    ///
+    /// # Safety
+    ///
+    /// This context must be the initialized default GCM context. No other
+    /// thread may access GCM or the default FIFO while this runs. The caller
+    /// must ensure all work submitted through the default FIFO and all
+    /// resources it references are safe to retire before restarting it.
+    /// Keep resources referenced by any queued GPU work alive until that work
+    /// has completed. A timeout can occur after the jump was queued and the
+    /// control register updated; the FIFO may therefore already be restarting
+    /// when [`Error::Timeout`] is returned.
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
+    pub unsafe fn reset_default_command_buffer_with_sizes(
+        &mut self,
+        command_words: u32,
+        segment_words: u32,
+        timeout_us: u32,
+    ) -> Result<(), Error> {
+        if command_words == 0 || segment_words == 0 || segment_words > command_words {
+            return Err(Error::InvalidArgument);
+        }
+        self.reset_default_command_buffer_to_initial_state(timeout_us)?;
+        let status = unsafe { raw::set_default_fifo_size(command_words, segment_words) };
+        Error::status(status)
+    }
+
+    #[cfg(any(feature = "sdk-270", feature = "sdk-370"))]
+    fn reset_default_command_buffer_to_initial_state(
+        &mut self,
+        timeout_us: u32,
+    ) -> Result<(), Error> {
+        const INIT_STATE_OFFSET: u32 = 0x1000;
+        const POLL_INTERVAL_US: u64 = 30;
+
+        let default_context = unsafe { addr_of!(DEFAULT_CONTEXT).read_volatile() };
+        if default_context == 0 || default_context as usize as *mut ContextData != self.as_raw() {
+            return Err(Error::InvalidContext);
+        }
+
+        let control = self.control()?;
+        unsafe { self.jump(INIT_STATE_OFFSET)? };
+        unsafe {
+            core::arch::asm!("sync", options(nostack, preserves_flags));
+            addr_of_mut!((*control.as_ptr()).put).write_volatile(INIT_STATE_OFFSET);
+        }
+
+        let start = crate::sys::sys_time_get_system_time();
+        let timeout = u64::from(timeout_us);
+        loop {
+            if unsafe { addr_of!((*control.as_ptr()).get).read_volatile() } == INIT_STATE_OFFSET {
+                return Ok(());
+            }
+
+            let elapsed = crate::sys::sys_time_get_system_time().saturating_sub(start);
+            if elapsed >= timeout {
+                return Err(Error::Timeout);
+            }
+            let sleep = POLL_INTERVAL_US.min(timeout - elapsed);
+            sys_timer_usleep(sleep);
+        }
     }
 
     /// Returns the core and local-memory information for the initialized RSX.

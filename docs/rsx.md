@@ -220,3 +220,15 @@ The SDK Cg datatype enum check corrected the numeric IDs used by fragment
 parameter DMA. All 18 supported float and boolean type cases passed. The
 original Cg fragment `texSize` update copied two floats and preserved the
 third microcode word at each embedded copy.
+
+The SDK 2.70 and 3.70 profiles passed the default FIFO reset and resize
+check on CEX 4.93 in RPCS3. The test advanced the command read pointer,
+reset it to the SDK initialization offset `0x1000`, and reduced the segment
+from 8,192 to 4,096 words within the 16,384-word command buffer. Submitting
+through the next segment advanced the FIFO boundary and completed a new
+reference command.
+
+The standalone depth clipping bounds setter matched the SDK FIFO packet,
+including the exact float bit patterns. In the local render probe the
+narrower bounds `[0.75, 1.0]` left the test triangle visible. The render
+semantics remain unverified.

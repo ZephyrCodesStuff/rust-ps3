@@ -137,19 +137,13 @@ impl Viewport {
 }
 
 impl Context {
-    /// Sets the minimum and maximum clip-space depth independently of the
-    /// viewport rectangle and transform.
+    /// Sets the minimum and maximum depth clipping bounds independently of
+    /// the viewport rectangle and transform.
     ///
     /// Like GCM's `SetClipMinMax`, this writes the two `f32` bit patterns
     /// directly; the SDK imposes no additional range or ordering limits.
     pub fn set_clip_min_max(&mut self, min: f32, max: f32) -> Result<(), Error> {
-        unsafe {
-            self.write_words(&[&[
-                packet(nv4097::SET_CLIP_MIN.address(), 2),
-                min.to_bits(),
-                max.to_bits(),
-            ]])
-        }
+        unsafe { self.write_method(nv4097::SET_CLIP_MIN, true, &[min.to_bits(), max.to_bits()]) }
     }
 
     pub fn set_viewport(&mut self, viewport: &Viewport) -> Result<(), Error> {
