@@ -14,6 +14,11 @@ function descriptors.
 - Draw calls support vertex and index buffers, inline data, programmable
   shaders, render targets, depth and stencil testing, blending, and
   vertex and fragment textures.
+- `TextureFormat`, `TextureLayout`, and `TextureRemap` build texture
+  descriptor words. Fragment bindings can select a border source,
+  depth comparison, signed-channel interpretation, alpha kill, and
+  anisotropic bias. Vertex texture bindings validate the two supported
+  linear, normalized floating-point formats and their alignment.
 - Vertex formats and offsets can be updated independently. The API also
   exposes shared vertex array bases, all eight immediate attribute
   formats, and inline 16-bit and 32-bit index draws.
@@ -95,3 +100,8 @@ Local and main-memory timestamps, local-report DMA readback, and
 main-memory notifications were checked in RPCS3. The framebuffer test
 checks both conditional drawing branches with preloaded report values.
 Positive occlusion counter results still need runtime verification.
+The advanced sampler and vertex texture command words matched the SDK.
+The framebuffer test checks green-to-red channel remapping. In RPCS3,
+rebinding the same texture with the identity remap after a draw retained
+the previous color. Custom border color and alpha kill also still need
+runtime verification.

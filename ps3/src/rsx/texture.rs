@@ -1,5 +1,165 @@
 use super::commands::packet;
-use super::{Context, Error, Location, Texture};
+use super::methods::nv4097;
+use super::{Compare, Context, Error, Location, Texture};
+
+/// The base encodings accepted by a Cell GCM texture descriptor.
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TextureFormat {
+    B8 = 0x81,
+    A1R5G5B5 = 0x82,
+    A4R4G4B4 = 0x83,
+    R5G6B5 = 0x84,
+    A8R8G8B8 = 0x85,
+    Dxt1 = 0x86,
+    Dxt23 = 0x87,
+    Dxt45 = 0x88,
+    G8B8 = 0x8b,
+    R6G5B5 = 0x8f,
+    Depth24D8 = 0x90,
+    Depth24D8Float = 0x91,
+    Depth16 = 0x92,
+    Depth16Float = 0x93,
+    X16 = 0x94,
+    Y16X16 = 0x95,
+    R5G5B5A1 = 0x97,
+    Hilo8 = 0x98,
+    SignedHilo8 = 0x99,
+    W16Z16Y16X16Float = 0x9a,
+    W32Z32Y32X32Float = 0x9b,
+    X32Float = 0x9c,
+    D1R5G5B5 = 0x9d,
+    D8R8G8B8 = 0x9e,
+    Y16X16Float = 0x9f,
+    PackedB8R8G8R8 = 0xad,
+    PackedR8B8R8G8 = 0xae,
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TextureLayout {
+    Swizzled = 0,
+    Linear = 0x20,
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TextureCoordinates {
+    Normalized = 0,
+    Texels = 0x40,
+}
+
+impl TextureFormat {
+    /// Encodes this format for the ABI-facing `Texture::format` field.
+    pub const fn encode(self, layout: TextureLayout, coordinates: TextureCoordinates) -> u8 {
+        self as u8 | layout as u8 | coordinates as u8
+    }
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TextureChannel {
+    Alpha = 0,
+    Red = 1,
+    Green = 2,
+    Blue = 3,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TextureComponent {
+    Zero,
+    One,
+    Channel(TextureChannel),
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum TextureRemapOrder {
+    Xyxy = 0,
+    Xxxy = 1,
+}
+
+/// A GCM channel remap word that can be stored in `Texture::remap`.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct TextureRemap(u32);
+
+impl TextureRemap {
+    pub const IDENTITY: Self = Self(0xaae4);
+
+    /// Builds a remap from the A, R, G, and B output components.
+    pub const fn new(output: [TextureComponent; 4], order: TextureRemapOrder) -> Self {
+        let mut word = (order as u32) << 16;
+        let mut index = 0;
+        while index < output.len() {
+            let (input, source) = match output[index] {
+                TextureComponent::Zero => (0, 0),
+                TextureComponent::One => (0, 1),
+                TextureComponent::Channel(channel) => (channel as u32, 2),
+            };
+            word |= (input | source << 8) << (index * 2);
+            index += 1;
+        }
+        Self(word)
+    }
+
+    pub const fn bits(self) -> u32 {
+        self.0
+    }
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum BorderSource {
+    Texture = 0,
+    #[default]
+    Color = 1,
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub enum SignedRemap {
+    #[default]
+    Normal = 0,
+    Clamped = 3,
+}
+
+/// Additional fragment sampling controls for a texture binding.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct TextureOptions {
+    pub border_source: BorderSource,
+    pub alpha_kill: bool,
+    /// Raw four-bit GCM anisotropic bias selection.
+    pub anisotropic_bias: u8,
+    pub signed_remap: SignedRemap,
+    /// Interpret the texture's A, R, G, and B channels as signed.
+    pub signed_channels: [bool; 4],
+}
+
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum AnisotropicSpacing {
+    Texels0_50 = 0,
+    Texels1_00 = 1,
+    Texels1_125 = 2,
+    Texels1_25 = 3,
+    Texels1_375 = 4,
+    Texels1_50 = 5,
+    Texels1_75 = 6,
+    Texels2_00 = 7,
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct AnisotropicSpread {
+    pub spacing: AnisotropicSpacing,
+    pub reduce_samples: bool,
+}
+
+impl AnisotropicSpread {
+    fn bits(self) -> u32 {
+        self.spacing as u32 | u32::from(self.reduce_samples) << 4
+    }
+}
 
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -73,6 +233,14 @@ impl Default for Sampler {
     }
 }
 
+impl Sampler {
+    /// Sets the comparison used when the shader samples a depth texture.
+    pub fn with_depth_compare(mut self, compare: Compare) -> Self {
+        self.compare = (compare as u32 - Compare::Never as u32) as u8;
+        self
+    }
+}
+
 impl Texture {
     /// Describes one level of linear A8R8G8B8 data with normalized coordinates.
     pub fn linear_argb8(
@@ -86,11 +254,12 @@ impl Texture {
             return Err(Error::InvalidArgument);
         }
         Ok(Self {
-            format: 0x85 | 0x20,
+            format: TextureFormat::A8R8G8B8
+                .encode(TextureLayout::Linear, TextureCoordinates::Normalized),
             mipmaps: 1,
             dimension: 2,
             cubemap: 0,
-            remap: 0x0000_aae4, // Each channel uses its corresponding input component.
+            remap: TextureRemap::IDENTITY.bits(),
             width,
             height,
             depth: 1,
@@ -143,6 +312,22 @@ impl Context {
         texture: &Texture,
         sampler: &Sampler,
     ) -> Result<(), Error> {
+        unsafe { self.bind_texture_with_options(slot, texture, sampler, TextureOptions::default()) }
+    }
+
+    /// Binds a fragment texture with optional extended sampler controls.
+    ///
+    /// # Safety
+    /// Observe the same allocation and lifetime requirements as
+    /// [`Self::bind_texture`]. For an embedded border the backing texture
+    /// must also contain the border texels required by the hardware format.
+    pub unsafe fn bind_texture_with_options(
+        &mut self,
+        slot: u8,
+        texture: &Texture,
+        sampler: &Sampler,
+        options: TextureOptions,
+    ) -> Result<(), Error> {
         texture.validate()?;
         let [min_lod, max_lod] = sampler.lod;
         if slot >= 16
@@ -153,21 +338,30 @@ impl Context {
             || sampler.convolution > 3
             || sampler.compare > 7
             || sampler.gamma > 15
+            || options.anisotropic_bias > 15
         {
             return Err(Error::InvalidArgument);
         }
         let [s, t, r] = sampler.wrap.map(|coordinate| coordinate as u32);
         let wrap = s
+            | (u32::from(options.anisotropic_bias) << 4)
             | (t << 8)
             | (r << 16)
             | (u32::from(sampler.unsigned_remap) << 12)
             | (u32::from(sampler.gamma) << 20)
+            | ((options.signed_remap as u32) << 24)
             | (u32::from(sampler.compare) << 28);
         let control = 1 << 31
             | (u32::from(min_lod) << 19)
             | (u32::from(max_lod) << 7)
-            | (u32::from(sampler.anisotropy) << 4);
-        let filter = ((sampler.mag_filter as u32) << 24)
+            | (u32::from(sampler.anisotropy) << 4)
+            | (u32::from(options.alpha_kill) << 2);
+        let [a, red, green, blue] = options.signed_channels.map(u32::from);
+        let filter = (a << 28)
+            | (red << 29)
+            | (green << 30)
+            | (blue << 31)
+            | ((sampler.mag_filter as u32) << 24)
             | ((sampler.min_filter as u32) << 16)
             | (u32::from(sampler.convolution) << 13)
             | (u32::from(sampler.lod_bias as u16) & 0x1fff);
@@ -176,7 +370,10 @@ impl Context {
             self.write_words(&[&[
                 packet(base, 8),
                 texture.offset,
-                texture.format_word() | (u32::from(texture.cubemap) << 2) | 0x8008,
+                texture.format_word()
+                    | (u32::from(texture.cubemap) << 2)
+                    | (options.border_source as u32) << 3
+                    | 0x8000,
                 wrap,
                 control,
                 texture.remap,
@@ -187,6 +384,74 @@ impl Context {
                 (u32::from(texture.depth) << 20) | texture.pitch,
             ]])
         }
+    }
+
+    /// Configures the quality hints for isotropic and anisotropic sampling.
+    pub fn set_texture_optimization(
+        &mut self,
+        slot: u8,
+        slope: u8,
+        isotropic_high: bool,
+        anisotropic_high: bool,
+    ) -> Result<(), Error> {
+        if slot >= 16 || slope >= 64 {
+            return Err(Error::InvalidArgument);
+        }
+        let value = 0x2d00
+            | u32::from(slope)
+            | (u32::from(isotropic_high) << 6)
+            | (u32::from(anisotropic_high) << 7);
+        let address = nv4097::SET_TEXTURE_CONTROL2.address() + u16::from(slot) * 4;
+        unsafe { self.write_words(&[&[packet(address, 1), value]]) }
+    }
+
+    /// Sets the general, horizontal, and vertical anisotropic sample spacing.
+    pub fn set_anisotropic_spread(
+        &mut self,
+        slot: u8,
+        general: AnisotropicSpread,
+        horizontal: AnisotropicSpread,
+        vertical: AnisotropicSpread,
+    ) -> Result<(), Error> {
+        if slot >= 16 {
+            return Err(Error::InvalidArgument);
+        }
+        let value = general.bits() | (horizontal.bits() << 8) | (vertical.bits() << 16);
+        let address = nv4097::SET_ANISO_SPREAD.address() + u16::from(slot) * 4;
+        unsafe { self.write_words(&[&[packet(address, 1), value]]) }
+    }
+
+    /// Sets the U, V, P, and Q cylindrical-wrap mask for texture slots 0–7.
+    /// Each slot occupies four bits, starting with slot 0 in the low nibble.
+    pub fn set_cylindrical_wrap(&mut self, mask: u32) -> Result<(), Error> {
+        unsafe { self.write_method(nv4097::SET_CYLINDRICAL_WRAP, true, &[mask]) }
+    }
+
+    /// Updates the fragment sampler's constant A8R8G8B8 border color.
+    pub fn set_texture_border_color(&mut self, slot: u8, argb: u32) -> Result<(), Error> {
+        if slot >= 16 {
+            return Err(Error::InvalidArgument);
+        }
+        let address = nv4097::SET_TEXTURE_BORDER_COLOR.address() + u16::from(slot) * 32;
+        unsafe { self.write_words(&[&[packet(address, 1), argb]]) }
+    }
+
+    /// Updates the vertex sampler's constant A8R8G8B8 border color.
+    pub fn set_vertex_texture_border_color(&mut self, slot: u8, argb: u32) -> Result<(), Error> {
+        if slot >= 4 {
+            return Err(Error::InvalidArgument);
+        }
+        let address = nv4097::SET_VERTEX_TEXTURE_BORDER_COLOR.address() + u16::from(slot) * 32;
+        unsafe { self.write_words(&[&[packet(address, 1), argb]]) }
+    }
+
+    /// Updates the GCM channel remap word of the bound fragment texture.
+    pub fn set_texture_remap(&mut self, slot: u8, remap: u32) -> Result<(), Error> {
+        if slot >= 16 {
+            return Err(Error::InvalidArgument);
+        }
+        let address = nv4097::SET_TEXTURE_CONTROL1.address() + u16::from(slot) * 32;
+        unsafe { self.write_words(&[&[packet(address, 1), remap]]) }
     }
 
     /// Binds a vertex texture. The RSX vertex path uses a restricted set of
@@ -203,9 +468,21 @@ impl Context {
         sampler: &Sampler,
     ) -> Result<(), Error> {
         texture.validate()?;
+        const RGBA32F: u8 = TextureFormat::W32Z32Y32X32Float
+            .encode(TextureLayout::Linear, TextureCoordinates::Normalized);
+        const R32F: u8 =
+            TextureFormat::X32Float.encode(TextureLayout::Linear, TextureCoordinates::Normalized);
+        let bytes_per_pixel = match texture.format {
+            RGBA32F => 16,
+            R32F => 4,
+            _ => return Err(Error::InvalidArgument),
+        };
         let [min_lod, max_lod] = sampler.lod;
         if slot >= 4
             || texture.cubemap != 0
+            || texture.offset % 128 != 0
+            || texture.pitch % bytes_per_pixel != 0
+            || texture.pitch < u32::from(texture.width) * bytes_per_pixel
             || min_lod > max_lod
             || max_lod > 0xfff
             || !(-4096..=4095).contains(&sampler.lod_bias)

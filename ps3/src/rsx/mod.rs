@@ -34,7 +34,11 @@ pub use pipeline::{
     LogicOp, PolygonMode, ShadeModel, StencilAction, StencilFace,
 };
 pub use sync::{Label, LabelStage, ReportKind, ReportSlot};
-pub use texture::{MagFilter, MinFilter, Sampler, WrapMode};
+pub use texture::{
+    AnisotropicSpacing, AnisotropicSpread, BorderSource, MagFilter, MinFilter, Sampler,
+    SignedRemap, TextureChannel, TextureComponent, TextureCoordinates, TextureFormat,
+    TextureLayout, TextureOptions, TextureRemap, TextureRemapOrder, WrapMode,
+};
 pub use tiled::{
     Antialias, DepthFormat, Tile, TileCompression, ZCull, ZCullDirection, ZCullFormat,
 };

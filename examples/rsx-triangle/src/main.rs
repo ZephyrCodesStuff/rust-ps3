@@ -278,6 +278,23 @@ fn run() -> Result<(), Error> {
         context.bind_texture(0, &texture, &Sampler::default())?;
         #[cfg(feature = "verify-framebuffer")]
         {
+            use ps3::rsx::{
+                TextureChannel as Channel, TextureComponent as Component, TextureRemap,
+                TextureRemapOrder,
+            };
+            let remap = TextureRemap::new(
+                [
+                    Component::Channel(Channel::Alpha),
+                    Component::Channel(Channel::Green),
+                    Component::Zero,
+                    Component::Zero,
+                ],
+                TextureRemapOrder::Xyxy,
+            );
+            context.set_texture_remap(0, remap.bits())?;
+        }
+        #[cfg(feature = "verify-framebuffer")]
+        {
             // Seed two completed report values to exercise both predicate branches.
             reports.write(20 * 16 + 8, &0u32.to_be_bytes())?;
             reports.write(21 * 16 + 8, &1u32.to_be_bytes())?;
@@ -329,7 +346,7 @@ fn run() -> Result<(), Error> {
         );
         assert_eq!(corner, COLOR & 0x00ff_ffff);
         assert_eq!(left, 0xff_8000);
-        assert_eq!(right, TEXEL & 0x00ff_ffff);
+        assert_eq!(right, (TEXEL & 0x0000_ff00) << 8);
     }
 
     // Show the rendered triangles before confirming that the buffers alternate.
