@@ -39,7 +39,7 @@ fn offset_table(image: &[u8], start: u32) -> Result<&[u8], ShaderError> {
     table.get(4..end).ok_or(ShaderError)
 }
 
-fn embedded_indices(
+pub(super) fn embedded_indices(
     offsets: &[u8],
     code_size: usize,
     value_count: usize,

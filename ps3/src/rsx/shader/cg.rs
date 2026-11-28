@@ -3,12 +3,35 @@
 use core::ffi::CStr;
 
 use super::cgb::{FragmentConfiguration, VertexConfiguration};
-use super::{be16, be32, offset_table, patch_embedded, ShaderError, INSTRUCTION_SIZE};
+use super::{
+    be16, be32, embedded_indices, fragment_address, offset_table, patch_embedded, ShaderError,
+    INSTRUCTION_SIZE,
+};
 use crate::rsx::commands::packet;
+use crate::rsx::transfer::TransferMemory;
 use crate::rsx::{Context, Error, Location};
 
 const PARAMETER_BYTES: usize = 48;
 const CG_CONSTANT: u32 = 4103;
+// Values from Cell SDK 3.70's Cg/NV/cg_datatypes.h (CG_TYPE_START_ENUM=1024).
+const CG_FLOAT: u32 = 1044;
+const CG_FLOAT1: u32 = 1090;
+const CG_FLOAT2: u32 = 1045;
+const CG_FLOAT3: u32 = 1046;
+const CG_FLOAT4: u32 = 1047;
+const CG_FLOAT3X3: u32 = 1058;
+const CG_FLOAT3X4: u32 = 1059;
+const CG_FLOAT4X3: u32 = 1062;
+const CG_FLOAT4X4: u32 = 1063;
+const CG_BOOL: u32 = 1113;
+const CG_BOOL1: u32 = 1114;
+const CG_BOOL2: u32 = 1115;
+const CG_BOOL3: u32 = 1116;
+const CG_BOOL4: u32 = 1117;
+const CG_BOOL3X3: u32 = 1128;
+const CG_BOOL3X4: u32 = 1129;
+const CG_BOOL4X3: u32 = 1132;
+const CG_BOOL4X4: u32 = 1133;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Profile {
@@ -20,6 +43,8 @@ pub enum Profile {
 pub struct Parameter<'a> {
     image: &'a [u8],
     embedded_constants: u32,
+    parameter_offset: usize,
+    parameter_end: usize,
     pub name: Option<&'a CStr>,
     pub semantic: Option<&'a CStr>,
     pub data_type: u32,
@@ -122,31 +147,36 @@ impl<'a> Program<'a> {
     }
 
     pub fn parameters(&self) -> impl ExactSizeIterator<Item = Parameter<'a>> + '_ {
-        self.parameters.chunks_exact(PARAMETER_BYTES).map(|p| {
-            let default_value = be32(p, 20);
-            let default_value = if default_value == 0 {
-                None
-            } else {
-                region(self.image, default_value, 16).ok().map(|value| {
-                    core::array::from_fn(|index| f32::from_bits(be32(value, index * 4)))
-                })
-            };
-            Parameter {
-                image: self.image,
-                embedded_constants: be32(p, 24),
-                data_type: be32(p, 0),
-                resource: be32(p, 4),
-                variability: be32(p, 8),
-                resource_index: be32(p, 12) as i32,
-                name: name(self.image, be32(p, 16)),
-                semantic: name(self.image, be32(p, 28)),
-                direction: be32(p, 32),
-                ordinal: be32(p, 36) as i32,
-                referenced: be32(p, 40) != 0,
-                shared: be32(p, 44) != 0,
-                default_value,
-            }
-        })
+        self.parameters
+            .chunks_exact(PARAMETER_BYTES)
+            .enumerate()
+            .map(|(index, p)| {
+                let default_value = be32(p, 20);
+                let default_value = if default_value == 0 {
+                    None
+                } else {
+                    region(self.image, default_value, 16).ok().map(|value| {
+                        core::array::from_fn(|index| f32::from_bits(be32(value, index * 4)))
+                    })
+                };
+                Parameter {
+                    image: self.image,
+                    embedded_constants: be32(p, 24),
+                    parameter_offset: index * PARAMETER_BYTES + be32(self.image, 16) as usize,
+                    parameter_end: be32(self.image, 16) as usize + self.parameters.len(),
+                    data_type: be32(p, 0),
+                    resource: be32(p, 4),
+                    variability: be32(p, 8),
+                    resource_index: be32(p, 12) as i32,
+                    name: name(self.image, be32(p, 16)),
+                    semantic: name(self.image, be32(p, 28)),
+                    direction: be32(p, 32),
+                    ordinal: be32(p, 36) as i32,
+                    referenced: be32(p, 40) != 0,
+                    shared: be32(p, 44) != 0,
+                    default_value,
+                }
+            })
     }
 
     pub fn vertex_configuration(&self) -> Result<VertexConfiguration, ShaderError> {
@@ -216,6 +246,125 @@ impl Context {
             .offset_bytes()
             .map_err(|_| Error::InvalidArgument)?;
         unsafe { self.upload_embedded_constants(location, offset, size, offsets, value) }
+    }
+
+    /// Copies a Cell SDK `SetFragmentProgramParameterPointer` source into the
+    /// embedded copies of a fragment parameter. Source words must already
+    /// have the SDK-required 16-bit-half swap. Matrix values use the SDK
+    /// binary table's consecutive row parameters. `source.pitch` and
+    /// `destination.pitch` are ignored; rows advance by the SDK byte width.
+    ///
+    /// # Safety
+    /// Both memory ranges must be live GPU allocations, synchronized with CPU
+    /// and GPU access, and the source range must contain the parameter data.
+    pub unsafe fn copy_cg_fragment_parameter_pointer(
+        &mut self,
+        shader: &Program<'_>,
+        parameter: &Parameter<'_>,
+        destination: TransferMemory,
+        source: TransferMemory,
+    ) -> Result<(), Error> {
+        if shader.profile != Profile::Fragment
+            || be32(parameter.image, 0) != 7004
+            || !core::ptr::eq(shader.image.as_ptr(), parameter.image.as_ptr())
+            || shader.image.len() != parameter.image.len()
+        {
+            return Err(Error::InvalidArgument);
+        }
+
+        let (rows, row_bytes, first_parameter) = match parameter.data_type {
+            CG_FLOAT | CG_BOOL | CG_FLOAT1 | CG_BOOL1 => (1usize, 4u32, parameter.parameter_offset),
+            CG_FLOAT2 | CG_BOOL2 => (1, 8, parameter.parameter_offset),
+            CG_FLOAT3 | CG_BOOL3 => (1, 12, parameter.parameter_offset),
+            CG_FLOAT4 | CG_BOOL4 => (1, 16, parameter.parameter_offset),
+            CG_FLOAT3X3 | CG_BOOL3X3 => (3, 12, parameter.parameter_offset + PARAMETER_BYTES),
+            CG_FLOAT4X3 | CG_BOOL4X3 => (4, 12, parameter.parameter_offset + PARAMETER_BYTES),
+            CG_FLOAT3X4 | CG_BOOL3X4 => (3, 16, parameter.parameter_offset + PARAMETER_BYTES),
+            CG_FLOAT4X4 | CG_BOOL4X4 => (4, 16, parameter.parameter_offset + PARAMETER_BYTES),
+            _ => return Err(Error::InvalidArgument),
+        };
+        if rows > 1
+            && first_parameter
+                .checked_add(rows * PARAMETER_BYTES)
+                .is_none_or(|end| end > parameter.parameter_end)
+        {
+            return Err(Error::InvalidArgument);
+        }
+        let code_size = be32(parameter.image, 24) as usize;
+        fragment_address(destination.location, destination.offset)?;
+        if code_size > (0x2000_0000 - destination.offset) as usize {
+            return Err(Error::InvalidArgument);
+        }
+        if source.offset % 4 != 0 {
+            return Err(Error::InvalidArgument);
+        }
+        // Validate and retain the row tables before queuing any transfer.
+        let mut row_offsets: [&[u8]; 4] = [&[]; 4];
+        for row in 0..rows {
+            let record = if rows == 1 {
+                region(parameter.image, first_parameter as u32, PARAMETER_BYTES)
+            } else {
+                region(
+                    parameter.image,
+                    (first_parameter + row * PARAMETER_BYTES) as u32,
+                    PARAMETER_BYTES,
+                )
+            }
+            .map_err(|_| Error::InvalidArgument)?;
+            let offsets = if be32(record, 24) == 0 {
+                &[][..]
+            } else {
+                offset_table(parameter.image, be32(record, 24))
+                    .map_err(|_| Error::InvalidArgument)?
+            };
+            let indices = embedded_indices(offsets, code_size, (row_bytes / 4) as usize)
+                .map_err(|_| Error::InvalidArgument)?;
+            row_offsets[row] = offsets;
+            let source_offset = source
+                .offset
+                .checked_add(
+                    (row as u32)
+                        .checked_mul(row_bytes)
+                        .ok_or(Error::InvalidArgument)?,
+                )
+                .ok_or(Error::InvalidArgument)?;
+            for index in indices {
+                let index = u32::try_from(index).map_err(|_| Error::InvalidArgument)?;
+                destination
+                    .offset
+                    .checked_add(index)
+                    .ok_or(Error::InvalidArgument)?;
+            }
+            source_offset
+                .checked_add(row_bytes - 1)
+                .ok_or(Error::InvalidArgument)?;
+        }
+        for row in 0..rows {
+            let offsets = row_offsets[row];
+            let indices = embedded_indices(offsets, code_size, (row_bytes / 4) as usize)
+                .map_err(|_| Error::InvalidArgument)?;
+            let source_offset = source.offset + row as u32 * row_bytes;
+            for index in indices {
+                let destination_offset = destination.offset + index as u32;
+                unsafe {
+                    self.copy_rows(
+                        TransferMemory {
+                            offset: source_offset,
+                            pitch: row_bytes as i32,
+                            ..source
+                        },
+                        TransferMemory {
+                            offset: destination_offset,
+                            pitch: row_bytes as i32,
+                            ..destination
+                        },
+                        row_bytes,
+                        1,
+                    )?;
+                }
+            }
+        }
+        Ok(())
     }
 
     /// Uploads a Cell SDK Cg vertex program and its internal defaults.
