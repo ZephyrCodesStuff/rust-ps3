@@ -80,11 +80,15 @@ older SDK's imports, add `--imports-only` with its `--sdk-abi` value.
 The example exercises a native RSX triangle draw, framebuffer setup, clear
 and flip, main-memory mapping, row copies, scaling, swizzled copies, a firmware
 FIFO refill, a user callback, tile and Z-cull setup, and alternate display
-buffers. The triangle uses Rust-authored vertex and fragment instruction
-words with an identity vertex matrix and position/color arrays. Shader
-microcode words are stored in big-endian order and remain in local memory for
-the lifetime of the draw. With `verify-framebuffer` and **Write Color Buffers**
-enabled, it also checks clear color and transfer results.
+buffers. The example samples a 4x4 ARGB texture uploaded through the transfer
+path, then draws the original color triangle on the other display buffer. The
+texture program and its
+matching position/TEXCOORD0 vertex program use the official SDK 4.75
+ImageProcessing/demosaic standalone binaries. Shader microcode words are
+stored in big-endian order and remain in local memory for the lifetime of the
+draw. With `verify-framebuffer` and **Write Color Buffers** enabled, it checks
+the clear color outside the textured triangle, the sampled texel inside it,
+the original color shader's output, and transfer results.
 
 Cg and CGB shader parsing supports the official SDK formats. GTF decoding
 was checked with single-texture and multi-texture SDK samples. The triangle

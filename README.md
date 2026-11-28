@@ -142,8 +142,9 @@ The [RSX notes](docs/rsx.md) describe the API and verification.
 The `rsx-triangle` example maps a 1 MiB-aligned I/O buffer, sets up a local
 framebuffer, clears it, and flips between display buffers. It also exercises
 GPU transfers and scaling. Build it with `./scripts/build.sh rsx-triangle`.
-Build with `--features verify-framebuffer` to check the clear color and the
-transfer results on hardware or in RPCS3 with **Write Color Buffers** enabled.
+Build with `--features verify-framebuffer` to check the sampled texture in the
+framebuffer and transfer results on hardware or in RPCS3 with **Write Color
+Buffers** enabled.
 
 ## LV2 syscall bindings
 
