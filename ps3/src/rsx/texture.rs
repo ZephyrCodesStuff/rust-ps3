@@ -274,20 +274,24 @@ fn texture_filter_word(sampler: &Sampler, signed_channels: [bool; 4]) -> u32 {
 }
 
 impl Texture {
-    /// Describes one level of linear A8R8G8B8 data with normalized coordinates.
-    pub fn linear_argb8(
+    fn linear_2d(
         location: Location,
         offset: u32,
         width: u16,
         height: u16,
         pitch: u32,
+        format: TextureFormat,
+        bytes_per_texel: u32,
     ) -> Result<Self, Error> {
-        if width == 0 || height == 0 || pitch < u32::from(width) * 4 || pitch > 0x000f_ffff {
+        if width == 0
+            || height == 0
+            || pitch < u32::from(width) * bytes_per_texel
+            || pitch > 0x000f_ffff
+        {
             return Err(Error::InvalidArgument);
         }
         Ok(Self {
-            format: TextureFormat::A8R8G8B8
-                .encode(TextureLayout::Linear, TextureCoordinates::Normalized),
+            format: format.encode(TextureLayout::Linear, TextureCoordinates::Normalized),
             mipmaps: 1,
             dimension: 2,
             cubemap: 0,
@@ -300,6 +304,45 @@ impl Texture {
             pitch,
             offset,
         })
+    }
+
+    /// Describes one level of linear A8R8G8B8 data with normalized coordinates.
+    pub fn linear_argb8(
+        location: Location,
+        offset: u32,
+        width: u16,
+        height: u16,
+        pitch: u32,
+    ) -> Result<Self, Error> {
+        Self::linear_2d(
+            location,
+            offset,
+            width,
+            height,
+            pitch,
+            TextureFormat::A8R8G8B8,
+            4,
+        )
+    }
+
+    /// Describes one level of linear R5G6B5 data with normalized coordinates.
+    /// `pitch` is measured in bytes and must hold one row of 16-bit texels.
+    pub fn linear_rgb565(
+        location: Location,
+        offset: u32,
+        width: u16,
+        height: u16,
+        pitch: u32,
+    ) -> Result<Self, Error> {
+        Self::linear_2d(
+            location,
+            offset,
+            width,
+            height,
+            pitch,
+            TextureFormat::R5G6B5,
+            2,
+        )
     }
 
     /// Describes one level of linear, normalized-coordinate vertex `f32` data.
