@@ -659,10 +659,19 @@ impl Context {
         }
     }
 
-    /// Sets the modulo operation mask for vertex attribute frequency division.
-    /// A clear bit selects division for the corresponding attribute.
+    /// Sets the per-attribute modulo mask for vertex frequency division.
+    /// Bit `n` selects modulo frequency for attribute slot `n`; clear bits
+    /// use divide frequency. The mask is consumed by the vertex fetch unit
+    /// together with the frequency values configured for each attribute.
     pub fn set_vertex_frequency_modulo(&mut self, attributes: u16) -> Result<(), Error> {
-        unsafe { self.write_words(&[&[packet(0x1fc0, 1), attributes.into()]]) }
+        use super::methods::nv4097::SET_FREQUENCY_DIVIDER_OPERATION;
+        unsafe {
+            self.write_method(
+                SET_FREQUENCY_DIVIDER_OPERATION,
+                true,
+                &[u32::from(attributes)],
+            )
+        }
     }
 
     /// Invalidates RSX texture caches after updates to texture data.

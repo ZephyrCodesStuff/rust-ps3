@@ -159,3 +159,6 @@ The `verify-framebuffer` example tested four face-culling settings on the
 same back buffer. Changing the culled face or front-face winding switched
 the center between the textured triangle and the clear color. All three
 SDK profiles passed in RPCS3.
+
+The vertex branch condition word and the per-slot vertex frequency modulo
+mask also matched their Cell GCM FIFO packets.

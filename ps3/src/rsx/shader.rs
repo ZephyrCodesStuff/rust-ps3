@@ -99,6 +99,14 @@ impl Context {
         unsafe { self.write_words(&[&[packet(0x1ff4, 1), mask]]) }
     }
 
+    /// Sets the 32 transform branch condition values used by vertex programs.
+    /// Bit `n` supplies condition `bN` to branch instructions: `1` is true,
+    /// and `0` is false.
+    pub fn set_transform_branch_bits(&mut self, branch_bits: u32) -> Result<(), Error> {
+        use super::methods::nv4097::SET_TRANSFORM_BRANCH_BITS;
+        unsafe { self.write_method(SET_TRANSFORM_BRANCH_BITS, true, &[branch_bits]) }
+    }
+
     /// Selects the transform timeout register budget for a vertex program.
     /// The RSX supports a 32-register budget through 32 used registers and a
     /// 48-register budget above that threshold, as in Cell GCM.
