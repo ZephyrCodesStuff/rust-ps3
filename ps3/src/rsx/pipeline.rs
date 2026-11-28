@@ -222,6 +222,111 @@ const fn pack_blend_pair(color: u16, alpha: u16) -> u32 {
 }
 
 impl Context {
+    /// Sets the stencil test enable independently of its comparison and operations.
+    pub fn set_stencil_test_enabled(&mut self, enabled: bool) -> Result<(), Error> {
+        unsafe { self.write_method(nv4097::SET_STENCIL_TEST_ENABLE, true, &[enabled.into()]) }
+    }
+
+    /// Enables or disables separate front and back stencil state.
+    pub fn set_two_sided_stencil_enabled(&mut self, enabled: bool) -> Result<(), Error> {
+        unsafe {
+            self.write_method(
+                nv4097::SET_TWO_SIDED_STENCIL_TEST_ENABLE,
+                true,
+                &[enabled.into()],
+            )
+        }
+    }
+
+    /// Sets front-face stencil comparison, reference and read mask independently.
+    pub fn set_stencil_function(
+        &mut self,
+        comparison: Compare,
+        reference: u8,
+        mask: u8,
+    ) -> Result<(), Error> {
+        unsafe {
+            self.write_method(
+                nv4097::SET_STENCIL_FUNC,
+                true,
+                &[comparison as u32, reference.into(), mask.into()],
+            )
+        }
+    }
+
+    /// Sets back-face stencil comparison, reference and read mask independently.
+    pub fn set_back_stencil_function(
+        &mut self,
+        comparison: Compare,
+        reference: u8,
+        mask: u8,
+    ) -> Result<(), Error> {
+        unsafe {
+            self.write_method(
+                nv4097::SET_BACK_STENCIL_FUNC,
+                true,
+                &[comparison as u32, reference.into(), mask.into()],
+            )
+        }
+    }
+
+    /// Sets the front-face stencil write mask independently.
+    pub fn set_stencil_write_mask(&mut self, mask: u8) -> Result<(), Error> {
+        unsafe { self.write_method(nv4097::SET_STENCIL_MASK, true, &[mask.into()]) }
+    }
+
+    /// Sets the back-face stencil write mask independently.
+    pub fn set_back_stencil_write_mask(&mut self, mask: u8) -> Result<(), Error> {
+        unsafe { self.write_method(nv4097::SET_BACK_STENCIL_MASK, true, &[mask.into()]) }
+    }
+
+    /// Sets front-face stencil fail, depth-fail and depth-pass operations.
+    pub fn set_stencil_operations(
+        &mut self,
+        fail: StencilAction,
+        depth_fail: StencilAction,
+        pass: StencilAction,
+    ) -> Result<(), Error> {
+        unsafe {
+            self.write_method(
+                nv4097::SET_STENCIL_OP_FAIL,
+                true,
+                &[fail as u32, depth_fail as u32, pass as u32],
+            )
+        }
+    }
+
+    /// Sets back-face stencil fail, depth-fail and depth-pass operations.
+    pub fn set_back_stencil_operations(
+        &mut self,
+        fail: StencilAction,
+        depth_fail: StencilAction,
+        pass: StencilAction,
+    ) -> Result<(), Error> {
+        unsafe {
+            self.write_method(
+                nv4097::SET_BACK_STENCIL_OP_FAIL,
+                true,
+                &[fail as u32, depth_fail as u32, pass as u32],
+            )
+        }
+    }
+
+    /// Sets culling enable independently of the selected face and winding.
+    pub fn set_cull_enabled(&mut self, enabled: bool) -> Result<(), Error> {
+        unsafe { self.write_method(nv4097::SET_CULL_FACE_ENABLE, true, &[enabled.into()]) }
+    }
+
+    /// Sets the culled face independently of culling enable and winding.
+    pub fn set_cull_face(&mut self, face: CullFace) -> Result<(), Error> {
+        unsafe { self.write_method(nv4097::SET_CULL_FACE, true, &[face as u32]) }
+    }
+
+    /// Sets polygon winding independently of culling enable and face.
+    pub fn set_face_winding(&mut self, winding: FaceWinding) -> Result<(), Error> {
+        unsafe { self.write_method(nv4097::SET_FRONT_FACE, true, &[winding as u32]) }
+    }
+
     /// Sets the color and alpha source/destination blend factors independently.
     ///
     /// This updates only the two factor registers, preserving the blend equation,
