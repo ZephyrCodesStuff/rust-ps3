@@ -109,5 +109,9 @@ boundary, 128-bit pixels, and narrow mip levels. Physical console tests and one-
 wrappers for the remaining GCM command helpers are still open.
 Local and main-memory timestamps, local-report DMA readback, main-memory
 notifications, and the SDK-like conditional occlusion smoke were checked in
-RPCS3. Advanced sampler behavior, vertex texture sampling, channel remapping,
-custom border colors, and alpha kill need runtime verification.
+RPCS3. On one unchanged render target, the sampler smoke produced the expected
+red/blue-remapped center value `0x563412`, then rebound the same texture
+allocation and slot with identity remapping and produced `0x123456`. This
+confirms the remap state updates on rebind in RPCS3. Vertex texture sampling,
+custom border colors, and alpha kill still need runtime verification. These
+sampler results are RPCS3 observations, not console validation claims.
