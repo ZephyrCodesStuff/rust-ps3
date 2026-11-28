@@ -139,8 +139,12 @@ shader pair compiled for RSX. In separate RPCS3 Legacy Recompiler runs, an
 RGBA32F vertex texture produced the expected framebuffer center values
 `0xff0000` and `0x00ff00`. A same-target rebind retained the old red pixel.
 The async shader interpreter reported that it does not support vertex
-textures. Same-target rebinding and R32F sampling still need runtime
+textures. Separate R32F runs used the sampled height to move the triangle
+apex. A height of +0.65 produced center RGB `0x336619`. A height of -0.65
+left the center at its pre-draw value. Same-target rebinding still needs
 verification.
 
 A PPU packet check in RPCS3 verified the independent Cell GCM blend factor,
-equation, and constant setters.
+equation, and constant setters, as well as independent stencil and culling
+state. A separate FIFO check verified direct vertex constant uploads, including
+eight-register packet splitting and rejection of out-of-range register writes.
