@@ -179,6 +179,16 @@ impl Context {
         config
     }
 
+    /// Returns GCM's default command-buffer capacity, in 32-bit words.
+    pub fn default_command_buffer_words(&self) -> u32 {
+        unsafe { raw::get_default_command_word_size() }
+    }
+
+    /// Returns GCM's default command-segment capacity, in 32-bit words.
+    pub fn default_segment_words(&self) -> u32 {
+        unsafe { raw::get_default_segment_word_size() }
+    }
+
     /// Looks up the RSX offset of a mapped effective address.
     pub fn address_to_offset(&self, address: u32) -> Result<u32, Error> {
         let mut offset = 0;
