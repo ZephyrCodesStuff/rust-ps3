@@ -34,21 +34,6 @@ The PS3 Developer Wiki indexes further SDK releases and documents LV2
 selectors and permission classes. [SDK index](https://www.psdevwiki.com/ps3/SCEI_PS3_SDK),
 [LV2 selector table](https://www.psdevwiki.com/ps3/LV2_Functions_and_Syscalls)
 
-PSL1GHT is a separate, useful reference for homebrew behavior. These snapshots
-use the same IDs for the eight inline memory operations in `sys/memory.h`,
-including 324 and 325 for memory containers.
-
-| PSL1GHT snapshot | Distinct inline selectors | Shared with SDK 3.70 |
-| --- | ---: | ---: |
-| [2011](https://github.com/ps3dev/PSL1GHT/tree/a8bb7c803ebd458ae1fb3932ad697a30e5632ba0/ppu/include) | 125 | 95 |
-| [2020](https://github.com/ps3dev/PSL1GHT/tree/6e565a70e927f55813babe86dc6f64149535f908/ppu/include) | 131 | 95 |
-| [2026](https://github.com/ps3dev/PSL1GHT/tree/dd4e8c9be744e3273d665c393fa6d97a87402e2e/ppu/include) | 137 | 95 |
-
-The argument count of each shared selector matches SDK 3.70 in all three
-snapshots. PSL1GHT also exposes some underlying filesystem, socket and USB
-traps that the official SDK accesses through libraries. A selector match
-alone does not establish a structure layout.
-
 ## Firmware dispatch tables
 
 The table records whether selected entries route to a handler in the

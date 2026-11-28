@@ -34,12 +34,11 @@ function descriptors.
   `map_notifications` before issuing notification commands. The API
   supports conditional draws, report DMA readback, and Z-cull statistics
   and stencil-cull settings.
-- `shader` reads PSL1GHT output and big-endian Cell SDK Cg revision 6.
-  `shader::cgb` reads CGB vertex and fragment configurations and vertex
-  default constants. The PSL1GHT and Cg readers can update embedded
-  fragment constants in a writable copy of the microcode before upload.
-  They can also queue constant writes to an uploaded program and refresh
-  the program address before drawing.
+- `shader::cg` reads big-endian Cell SDK Cg revision 6. `shader::cgb` reads
+  CGB vertex and fragment configurations and vertex default constants. Both
+  readers can update embedded fragment constants in a writable microcode copy
+  before upload. They can also queue constant writes to an uploaded program
+  and refresh its address before drawing.
 - `gtf::File` reads the texture descriptors and mip chains in Cell SDK
   GTF assets. Copy an image's bytes with `Buffer::write` and obtain the
   relocated texture descriptor with `Image::descriptor_at`.
@@ -78,30 +77,20 @@ older SDK's imports, add `--imports-only` with its `--sdk-abi` value.
 | DEX 4.81 | 49 / 49 | 60 / 60 | 74 / 74 |
 | CEX 4.93 | 49 / 49 | 60 / 60 | 74 / 74 |
 
-The `rsx-triangle` example passed in RPCS3 at 1280 × 720 under all three
-Cargo profiles. With
-`verify-framebuffer` and **Write Color Buffers** enabled, it checks
-the clear color, an inline 16-bit indexed draw with an immediate color
-and a shared vertex base, an indexed buffer draw, a queued fragment constant
-update, inline transfers to main memory, GPU copies and scaling,
-swizzle output, a firmware FIFO refill, a user callback, and alternate
-display buffers. It also checks tile and Z-cull setup, including the
-stencil values passed on the ELFv1 stack.
+The example exercises framebuffer setup, clear and flip, main-memory
+mapping, row copies, scaling, swizzled copies, a firmware FIFO refill, a user
+callback, tile and Z-cull setup, and alternate display buffers. With
+`verify-framebuffer` and **Write Color Buffers** enabled, it checks the clear
+color and transfer results. It does not currently submit shader draws.
 
-The Cg reader was tested with vertex and fragment binaries shipped
-with SDK 4.75, including a fragment parameter with five embedded
-locations. GTF decoding was checked with single-texture and
-multi-texture SDK samples. The Cg and CGB vertex upload paths were
-exercised in RPCS3, along with pitched subrectangle copies, a swizzled
-copy crossing a 1024-pixel boundary, 128-bit pixels, and narrow mip
-levels. Physical console tests and one-for-one typed
+Cg and CGB shader parsing supports the official SDK formats. GTF decoding
+was checked with single-texture and multi-texture SDK samples. Runtime shader
+upload and draw coverage is being developed separately. Transfer coverage
+includes pitched subrectangle copies, a swizzled copy crossing a 1024-pixel
+boundary, 128-bit pixels, and narrow mip levels. Physical console tests and one-for-one typed
 wrappers for the remaining GCM command helpers are still open.
 Local and main-memory timestamps, local-report DMA readback, and
-main-memory notifications were checked in RPCS3. The framebuffer test
-checks both conditional drawing branches with preloaded report values.
-Positive occlusion counter results still need runtime verification.
-The advanced sampler and vertex texture command words matched the SDK.
-The framebuffer test checks green-to-red channel remapping. In RPCS3,
-rebinding the same texture with the identity remap after a draw retained
-the previous color. Custom border color and alpha kill also still need
+main-memory notifications were checked in RPCS3. Conditional rendering,
+positive occlusion counters, advanced sampler behavior, vertex texture
+sampling, channel remapping, custom border colors, and alpha kill need
 runtime verification.

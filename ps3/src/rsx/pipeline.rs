@@ -1,5 +1,32 @@
 use super::commands::packet;
+use super::methods::nv4097;
 use super::{Context, Error};
+
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum FogMode {
+    Linear = 0x2601,
+    Exponential = 0x0800,
+    ExponentialSquared = 0x0801,
+    ExponentialAbsolute = 0x0802,
+    ExponentialSquaredAbsolute = 0x0803,
+    LinearAbsolute = 0x0804,
+}
+
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PointSpriteR {
+    Zero = 0,
+    FromR = 1,
+    FromS = 2,
+}
+
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DepthEncoding {
+    Fixed = 0,
+    Float = 1,
+}
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -191,6 +218,105 @@ pub enum LogicOp {
 }
 
 impl Context {
+    /// Sets the width in eighths of a pixel and selects line smoothing.
+    pub fn set_line_rasterization(
+        &mut self,
+        width_eighths: u16,
+        smooth: bool,
+    ) -> Result<(), Error> {
+        if width_eighths > 0x1ff {
+            return Err(Error::InvalidArgument);
+        }
+        unsafe {
+            self.write_method(
+                nv4097::SET_LINE_WIDTH,
+                true,
+                &[width_eighths.into(), smooth.into()],
+            )
+        }
+    }
+
+    /// Selects a 16-bit line pattern and its hardware repeat factor.
+    pub fn set_line_stipple(&mut self, pattern: Option<(u16, u8)>) -> Result<(), Error> {
+        unsafe {
+            if let Some((bits, factor)) = pattern {
+                let value = u32::from(bits) << 16 | u32::from(factor);
+                self.write_method(nv4097::SET_LINE_STIPPLE, true, &[1, value])
+            } else {
+                self.write_method(nv4097::SET_LINE_STIPPLE, true, &[0])
+            }
+        }
+    }
+
+    /// Selects a 32×32 polygon stipple pattern, one word per row.
+    pub fn set_polygon_stipple(&mut self, pattern: Option<&[u32; 32]>) -> Result<(), Error> {
+        unsafe {
+            if let Some(pattern) = pattern {
+                self.write_words(&[&[nv4097::SET_POLYGON_STIPPLE.header(33, true), 1], pattern])
+            } else {
+                self.write_method(nv4097::SET_POLYGON_STIPPLE, true, &[0])
+            }
+        }
+    }
+
+    pub fn set_polygon_smooth(&mut self, enabled: bool) -> Result<(), Error> {
+        unsafe { self.write_method(nv4097::SET_POLY_SMOOTH_ENABLE, true, &[enabled.into()]) }
+    }
+
+    pub fn set_point_size(&mut self, pixels: f32) -> Result<(), Error> {
+        unsafe { self.write_method(nv4097::SET_POINT_SIZE, true, &[pixels.to_bits()]) }
+    }
+
+    /// Selects point sprites. The coordinate mask uses bits 0–9 for TEX0–TEX9.
+    pub fn set_point_sprite(&mut self, sprite: Option<(PointSpriteR, u16)>) -> Result<(), Error> {
+        let (enabled, control) = match sprite {
+            Some((r, mask)) if mask <= 0x03ff => (1, 1 | (r as u32) << 1 | u32::from(mask) << 8),
+            Some(_) => return Err(Error::InvalidArgument),
+            None => (0, 0),
+        };
+        unsafe { self.write_method(nv4097::SET_POINT_PARAMS_ENABLE, true, &[enabled, control]) }
+    }
+
+    /// Sets the fog equation and its two shader parameters.
+    pub fn set_fog(&mut self, mode: FogMode, parameters: [f32; 2]) -> Result<(), Error> {
+        unsafe {
+            self.write_method(
+                nv4097::SET_FOG_MODE,
+                true,
+                &[
+                    mode as u32,
+                    parameters[0].to_bits(),
+                    parameters[1].to_bits(),
+                ],
+            )
+        }
+    }
+
+    /// Selects the numeric representation of the active depth surface.
+    pub fn set_depth_encoding(&mut self, encoding: DepthEncoding) -> Result<(), Error> {
+        unsafe {
+            self.write_method(
+                nv4097::SET_CONTROL0,
+                true,
+                &[0x0010_0000 | (encoding as u32) << 12],
+            )
+        }
+    }
+
+    pub fn set_depth_clip(
+        &mut self,
+        cull_near_far: bool,
+        clamp: bool,
+        ignore_w: bool,
+    ) -> Result<(), Error> {
+        let value = u32::from(cull_near_far) | u32::from(clamp) << 4 | u32::from(ignore_w) << 8;
+        unsafe { self.write_method(nv4097::SET_ZMIN_MAX_CONTROL, true, &[value]) }
+    }
+
+    pub fn set_blend_optimization(&mut self, enabled: bool) -> Result<(), Error> {
+        unsafe { self.write_method(nv4097::SET_REDUCE_DST_COLOR, true, &[enabled.into()]) }
+    }
+
     pub fn set_depth_compare(&mut self, compare: Compare) -> Result<(), Error> {
         unsafe { self.write_words(&[&[packet(0x0a6c, 1), compare as u32]]) }
     }

@@ -1,6 +1,128 @@
 //! Configures the video output to scan out RSX display buffers.
 
+#[cfg(feature = "sdk-370")]
+use super::raw;
 use super::Error;
+
+/// Position and size of one GCM display buffer, in RSX I/O address space.
+#[cfg(feature = "sdk-370")]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct DisplayBufferInfo {
+    pub offset: u32,
+    pub pitch: u32,
+    pub width: u32,
+    pub height: u32,
+}
+
+/// A snapshot of GCM's display timing counters.
+///
+/// The timestamp values use the firmware's `system_time_t` units; compare
+/// successive values rather than assuming a particular clock frequency.
+#[cfg(feature = "sdk-370")]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
+pub struct DisplayTelemetry {
+    pub current_buffer_id: u8,
+    pub current_field: u32,
+    pub vblank_count: u64,
+    pub last_flip_time: i64,
+    pub last_second_v_time: i64,
+}
+
+/// Reads display buffer metadata and timing from the initialized GCM runtime.
+///
+/// The metadata array is firmware-owned and remains valid while GCM is
+/// initialized. Buffer IDs are limited to the eight GCM display slots.
+#[cfg(feature = "sdk-370")]
+pub fn display_buffer_info(id: u8) -> Result<DisplayBufferInfo, Error> {
+    if id >= 8 {
+        return Err(Error::InvalidArgument);
+    }
+    let info = unsafe { raw::get_display_info() };
+    if info.is_null() {
+        return Err(Error::InvalidContext);
+    }
+    let info = unsafe { info.add(usize::from(id)).read() };
+    Ok(DisplayBufferInfo {
+        offset: info.offset,
+        pitch: info.pitch,
+        width: info.width,
+        height: info.height,
+    })
+}
+
+/// Returns the current display slot and the firmware's display timing counters.
+#[cfg(feature = "sdk-370")]
+pub fn display_telemetry() -> Result<DisplayTelemetry, Error> {
+    let mut current_buffer_id = 0;
+    Error::status(unsafe { raw::get_current_display_buffer_id(&mut current_buffer_id) })?;
+    Ok(DisplayTelemetry {
+        current_buffer_id,
+        current_field: unsafe { raw::get_current_field() },
+        vblank_count: unsafe { raw::get_v_blank_count() },
+        last_flip_time: unsafe { raw::get_last_flip_time() },
+        last_second_v_time: unsafe { raw::get_last_second_v_time() },
+    })
+}
+
+/// Controls the hardware cursor managed by Cell GCM (SDK 3.70 and later).
+///
+/// Cursor operations affect process-wide GCM state. Serialize them with other
+/// cursor users and with any code that changes the display output.
+/// Initialize first, select an aligned image, then enable the cursor. Apply
+/// position and image changes before calling [`Cursor::update`]; the SDK's
+/// cursor sample performs that update from its VBlank handler.
+#[cfg(feature = "sdk-370")]
+pub struct Cursor;
+
+#[cfg(feature = "sdk-370")]
+impl Cursor {
+    /// Alignment required for cursor images by the Cell GCM hardware.
+    pub const IMAGE_ALIGNMENT: u32 = 2048;
+    /// Byte length of the fixed 64 by 64 ARGB cursor image.
+    pub const IMAGE_BYTES: u32 = 64 * 64 * 4;
+
+    /// Initializes GCM's cursor support. Call before selecting the image.
+    pub fn initialize() -> Result<(), Error> {
+        Error::status(unsafe { raw::init_cursor() })
+    }
+
+    /// Enables the cursor after initialization and image setup.
+    pub fn enable() -> Result<(), Error> {
+        Error::status(unsafe { raw::set_cursor_enable() })
+    }
+
+    /// Hides the cursor.
+    pub fn disable() -> Result<(), Error> {
+        Error::status(unsafe { raw::set_cursor_disable() })
+    }
+
+    /// Sets the cursor's top-left position in display coordinates.
+    pub fn set_position(x: i32, y: i32) -> Result<(), Error> {
+        Error::status(unsafe { raw::set_cursor_position(x, y) })
+    }
+
+    /// Selects the cursor image in RSX I/O address space.
+    ///
+    /// # Safety
+    ///
+    /// `offset` must designate a `IMAGE_BYTES` ARGB image in RSX local memory.
+    /// Keep that allocation reserved and unchanged while the cursor can
+    /// display it. The SDK requires `IMAGE_ALIGNMENT` alignment.
+    pub unsafe fn set_image_offset(offset: u32) -> Result<(), Error> {
+        if offset % Self::IMAGE_ALIGNMENT != 0 {
+            return Err(Error::InvalidArgument);
+        }
+        Error::status(unsafe { raw::set_cursor_image_offset(offset) })
+    }
+
+    /// Publishes changes to the cursor image or position.
+    ///
+    /// The Cell SDK cursor sample calls this from its VBlank handler after
+    /// applying image or position changes.
+    pub fn update() -> Result<(), Error> {
+        Error::status(unsafe { raw::update_cursor() })
+    }
+}
 
 #[repr(u32)]
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]

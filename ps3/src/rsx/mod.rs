@@ -21,7 +21,7 @@ mod transfer;
 pub mod types;
 pub mod video;
 
-pub use commands::ClearMask;
+pub use commands::{ClearMask, PixelCenter, WindowOrigin};
 pub use context::{Context, Error, FlipMode, Method};
 pub use display::{Framebuffer, Swapchain};
 pub use draw::{
@@ -30,8 +30,9 @@ pub use draw::{
 pub use event::{Event, EventCallback};
 pub use memory::{Buffer, IoBuffer, LocalArena};
 pub use pipeline::{
-    Blend, BlendChannel, BlendEquation, BlendFactor, ClipPlane, Compare, CullFace, FaceWinding,
-    LogicOp, PolygonMode, ShadeModel, StencilAction, StencilFace,
+    Blend, BlendChannel, BlendEquation, BlendFactor, ClipPlane, Compare, CullFace, DepthEncoding,
+    FaceWinding, FogMode, LogicOp, PointSpriteR, PolygonMode, ShadeModel, StencilAction,
+    StencilFace,
 };
 pub use sync::{Label, LabelStage, ReportKind, ReportSlot};
 pub use texture::{

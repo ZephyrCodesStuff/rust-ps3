@@ -41,6 +41,22 @@ impl core::ops::BitOr for ClearMask {
     }
 }
 
+/// Vertical origin used for fragment shader window coordinates.
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum WindowOrigin {
+    Top = 0,
+    Bottom = 1,
+}
+
+/// Pixel center convention used for fragment shader window coordinates.
+#[repr(u32)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum PixelCenter {
+    Half = 0,
+    Integer = 1,
+}
+
 impl Context {
     /// Selects the framebuffer and depth buffer for subsequent drawing.
     ///
@@ -49,6 +65,21 @@ impl Context {
     /// Active offsets, pitches and formats must describe mapped GPU memory
     /// that stays available until rendering and any display use complete.
     pub unsafe fn set_surface(&mut self, surface: &Surface) -> Result<(), Error> {
+        unsafe { self.set_surface_window(surface, WindowOrigin::Bottom, PixelCenter::Half) }
+    }
+
+    /// Selects the framebuffer and depth buffer, and configures shader window coordinates.
+    ///
+    /// # Safety
+    ///
+    /// Active offsets, pitches and formats must describe mapped GPU memory
+    /// that stays available until rendering and any display use complete.
+    pub unsafe fn set_surface_window(
+        &mut self,
+        surface: &Surface,
+        origin: WindowOrigin,
+        pixel_center: PixelCenter,
+    ) -> Result<(), Error> {
         if surface.width == 0
             || surface.height == 0
             || surface.color_location.iter().any(|loc| *loc > 1)
@@ -62,6 +93,8 @@ impl Context {
             | (u32::from(surface.kind) << 8)
             | (u32::from(surface.depth_format) << 5)
             | u32::from(surface.color_format);
+        let shader_height =
+            u32::from(surface.height) - ((u32::from(surface.height) & 0x1000) >> 12);
         let pack_xy = |x: u16, y: u16| u32::from(x) | (u32::from(y) << 16);
         let local_or_main = |location: u8| DMA_LOCAL + u32::from(location);
         unsafe {
@@ -97,7 +130,7 @@ impl Context {
                 pack_xy(surface.x, surface.width),
                 pack_xy(surface.y, surface.height),
                 packet(0x1d88, 1),
-                (1 << 12) | u32::from(surface.height),
+                shader_height | (origin as u32) << 12 | (pixel_center as u32) << 16,
             ]])
         }
     }

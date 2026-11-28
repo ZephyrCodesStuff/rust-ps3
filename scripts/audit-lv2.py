@@ -15,7 +15,6 @@ SDK_INLINE = re.compile(
     r"\{([^{}]*(?:\{[^{}]*\}[^{}]*)*)\}"
 )
 SDK_CALL = re.compile(r"\bsystem_call_([0-8])\s*\(\s*(_?SYS_[A-Z0-9_]+)\b")
-PSL1GHT_CALL = re.compile(r"\blv2syscall([0-8])\s*\(\s*(\d+)\s*[,)]")
 RUST_NUMBER = re.compile(r"^pub const (_?SYS_[A-Z0-9_]+): u64 = (\w+);", re.M)
 RUST_BINDING = re.compile(
     r"\bpub unsafe fn (\w+)\(([^{}()]*)\)\s*(?:->\s*(\w+)\s*)?"
@@ -177,18 +176,6 @@ def sdk_bindings(include):
     return bindings
 
 
-def psl1ght_selectors(include):
-    if not (include / "ppu-lv2.h").is_file():
-        raise ValueError(f"missing PSL1GHT PPU header: {include / 'ppu-lv2.h'}")
-    selectors = {}
-    for path in include.rglob("*.h"):
-        for arity, number in PSL1GHT_CALL.findall(header_source(path)):
-            selectors.setdefault(int(number), set()).add(int(arity))
-    if not selectors:
-        raise ValueError(f"no inline PSL1GHT syscalls found in {include}")
-    return selectors
-
-
 def rust_source(path, abi):
     source = path.read_text(encoding="utf-8")
     return re.sub(
@@ -299,7 +286,6 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--public-sdk-headers", type=Path, required=True, metavar="INCLUDE_DIR")
     parser.add_argument("--sdk-abi", choices=("sdk-192", "sdk-270", "sdk-370"), default="sdk-370")
-    parser.add_argument("--psl1ght-headers", type=Path, metavar="INCLUDE_DIR")
     parser.add_argument("--lv2-stub-archive", type=Path, metavar="LIBLV2_STUB_A")
     parser.add_argument("--lv2-debug-stub-archive", type=Path, metavar="LIBLV2DBG_STUB_A")
     parser.add_argument("--crashdump-stub-archive", type=Path, metavar="LIBCRASHDUMP_STUB_A")
@@ -309,7 +295,6 @@ def main():
     try:
         sdk = sdk_bindings(args.public_sdk_headers)
         rust = rust_bindings(args.sdk_abi)
-        psl1ght = psl1ght_selectors(args.psl1ght_headers) if args.psl1ght_headers else None
     except (OSError, KeyError, ValueError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"{error}\n")
 
@@ -322,18 +307,6 @@ def main():
     if errors:
         parser.exit(1, "\n".join(errors) + "\n")
     print(f"{args.sdk_abi}: all {len(sdk)} public inline wrappers match by name, selector and ABI signature")
-    if psl1ght is not None:
-        by_number = {binding.number: (name, binding) for name, binding in rust.items()}
-        shared = by_number.keys() & psl1ght.keys()
-        print(f"PSL1GHT: {len(shared)} shared inline selectors, "
-              f"{len(by_number.keys() - psl1ght.keys())} only in the official profile, "
-              f"{len(psl1ght.keys() - by_number.keys())} only in PSL1GHT")
-        for number in sorted(shared):
-            name, binding = by_number[number]
-            if psl1ght[number] != {binding.arity}:
-                print(f"  {number} ({name}): official arity {binding.arity}, "
-                      f"PSL1GHT arities {sorted(psl1ght[number])}")
-
     for archive, library in ((args.lv2_stub_archive, "sysPrxForUser"),
                              (args.lv2_debug_stub_archive, "sys_lv2dbg"),
                              (args.crashdump_stub_archive, "sys_crashdump")):

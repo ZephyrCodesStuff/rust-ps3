@@ -64,11 +64,9 @@ See `examples/` directory for sample programs (`examples/hello-world` and `examp
 - [ ] `std` support
 - [ ] Automated self / `EBOOT.BIN` packaging
 
-### What about PSL1GHT / Cell SDK?
+### Toolchain
 
-Traditional PS3 homebrew relies on the legacy GCC-based **PSL1GHT** SDK or the official Sony Cell SDK. 
-
-`rust-ps3` (formerly `hello-cell`) is a **standalone, modern toolchain and runtime** built directly on top of upstream LLVM/rustc:
+`rust-ps3` (formerly `hello-cell`) is a standalone toolchain and runtime built directly on top of upstream LLVM/rustc:
 - Targets 64-bit PowerPC ELFv1 (`powerpc64-unknown-linux-gnu` reference target spec, customized to `powerpc64-sony-ps3` for CellOS and PPU).
 - Links binaries using the modern high-performance [`mold`](https://github.com/rui314/mold) linker.
 - Patches the final binary with **`moldier`**, a small(ish) post-linker tool that generates SPRX import stubs from TOML definitions and patches Sony LV2 Official Procedure Descriptors (OPD) and TOC relocations directly into the final ELF.
@@ -142,18 +140,10 @@ Use `moldier patch` to prepare the executable's imports before running it.
 The [RSX notes](docs/rsx.md) describe the API and verification.
 
 The `rsx-triangle` example maps a 1 MiB-aligned I/O buffer, sets up a local
-framebuffer, and draws two triangles. One uses indexed geometry and a
-texture copied and scaled into place by the GPU. Build it with
-`./scripts/build.sh rsx-triangle`. The example shows the memory ownership
-and synchronization needed to submit commands.
-
-The example ships preassembled shaders. To rebuild them with PSL1GHT's
-`cgcomp`, go to `examples/rsx-triangle/shaders` and run
-`cgcomp -a -v triangle.vp triangle.vpo` and
-`cgcomp -a -f triangle.fp triangle.fpo`. Repeat for the `texture` shaders.
-Build the example with
-`--features verify-framebuffer` to check the rendered pixels on hardware
-or in RPCS3 with **Write Color Buffers** enabled.
+framebuffer, clears it, and flips between display buffers. It also exercises
+GPU transfers and scaling. Build it with `./scripts/build.sh rsx-triangle`.
+Build with `--features verify-framebuffer` to check the clear color and the
+transfer results on hardware or in RPCS3 with **Write Color Buffers** enabled.
 
 ## LV2 syscall bindings
 
@@ -190,7 +180,7 @@ Select one feature across the dependency graph. The selection is made at
 compile time. Check the running firmware and process permissions before
 using an entry point. Some firmware revisions expose the two memory
 container selector pairs under different permissions. See the
-[firmware and PSL1GHT comparison](docs/lv2-compatibility.md) for the
+[firmware compatibility notes](docs/lv2-compatibility.md) for the
 versions and evidence behind these differences.
 
 Public SDK helpers for memory mapping and timer scheduling are available
@@ -223,8 +213,6 @@ against local SDK headers.
 python3 scripts/audit-lv2.py --public-sdk-headers INCLUDE_DIR --sdk-abi sdk-370
 ```
 
-Add `--psl1ght-headers "$PS3DEV/ppu/include"` to compare inline selector
-coverage and argument counts with a local PSL1GHT installation. Pass
 `--lv2-stub-archive PATH_TO_LIBLV2_STUB_A --ppu-bin "$PS3DEV/ppu/bin"` to
 also compare the public library signatures and import IDs. The debug and
 crash dump libraries use `--lv2-debug-stub-archive PATH_TO_LIBLV2DBG_STUB_A`

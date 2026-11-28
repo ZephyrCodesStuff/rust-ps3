@@ -7,15 +7,11 @@ use core::sync::atomic::{AtomicU32, Ordering};
 
 use ps3::println;
 use ps3::rsx::{
-    shader::{FragmentProgram, VertexProgram},
-    video, Blend, Buffer, ClearMask, Compare, Context, Error, FaceWinding, FlipMode, IndexType,
-    IoBuffer, LabelStage, PolygonMode, Primitive, Rect, Sampler, ScaleTarget, Swapchain, Texture,
-    TransferMemory, TransferScale, TransferSurface, VertexAttribute, VertexType, Viewport,
+    video, Buffer, ClearMask, Compare, Context, Error, FlipMode, IoBuffer, LabelStage, Rect,
+    ScaleTarget, Swapchain, TransferMemory, TransferScale, TransferSurface, Viewport,
 };
 #[cfg(feature = "verify-framebuffer")]
-use ps3::rsx::{
-    Event, EventCallback, ImageCopyTarget, ImagePixelSize, ImmediateVertex, Location, ReportSlot,
-};
+use ps3::rsx::{Event, EventCallback, ImageCopyTarget, ImagePixelSize};
 use ps3::sys::sys_timer_usleep;
 
 const MIB: usize = 1024 * 1024;
@@ -23,19 +19,8 @@ const IO_SIZE: usize = MIB;
 const COLOR: u32 = 0xff35_78c8;
 const TEXEL: u32 = 0xff00_dc00;
 const TEX_PITCH: u32 = 64;
-const VERTICES: [[f32; 8]; 6] = [
-    [-0.5, 0.7, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0],
-    [-0.9, -0.6, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0],
-    [-0.1, -0.6, 0.0, 1.0, 1.0, 0.0, 0.0, 1.0],
-    [0.5, 0.7, 0.0, 1.0, 0.5, 0.0, 0.0, 1.0],
-    [0.1, -0.6, 0.0, 1.0, 0.0, 1.0, 0.0, 1.0],
-    [0.9, -0.6, 0.0, 1.0, 1.0, 1.0, 0.0, 1.0],
-];
-
 static mut IO: IoBuffer<IO_SIZE> = IoBuffer([0; IO_SIZE]);
 static mut TEXTURE_UPLOAD: IoBuffer<IO_SIZE> = IoBuffer([0; IO_SIZE]);
-#[cfg(feature = "verify-framebuffer")]
-static mut REPORTS: IoBuffer<IO_SIZE> = IoBuffer([0; IO_SIZE]);
 #[cfg(feature = "verify-framebuffer")]
 static USER_EVENT: AtomicU32 = AtomicU32::new(0);
 
@@ -79,18 +64,6 @@ fn run() -> Result<(), Error> {
     let config = context.configuration();
     let output = video::Output::Primary;
     let mode = output.state(0)?.display_mode;
-    let vertex = VertexProgram::parse(include_bytes!("../shaders/triangle.vpo"))
-        .map_err(|_| Error::InvalidArgument)?;
-    let fragment = FragmentProgram::parse(include_bytes!("../shaders/triangle.fpo"))
-        .map_err(|_| Error::InvalidArgument)?;
-    let tint = fragment
-        .constants()
-        .find(|constant| constant.name.is_some_and(|name| name.to_bytes() == b"tint"))
-        .ok_or(Error::InvalidArgument)?;
-    let textured_vertex = VertexProgram::parse(include_bytes!("../shaders/texture.vpo"))
-        .map_err(|_| Error::InvalidArgument)?;
-    let textured_fragment = FragmentProgram::parse(include_bytes!("../shaders/texture.fpo"))
-        .map_err(|_| Error::InvalidArgument)?;
     // This app owns the entire local-memory range supplied by GCM.
     let mut vram = unsafe { context.local_arena(0..config.local_size)? };
     #[cfg(feature = "verify-framebuffer")]
@@ -101,10 +74,6 @@ fn run() -> Result<(), Error> {
     let depth = vram.allocate(back.storage().size(), 64)?;
     let surface = back.surface(&depth)?;
     let first_offset = back.storage().offset();
-    let mut vertices = vram.allocate(size_of_val(&VERTICES) as u32, 128)?;
-    let mut fragment_code = vram.allocate(fragment.microcode().len() as u32, 128)?;
-    let mut textured_code = vram.allocate(textured_fragment.microcode().len() as u32, 128)?;
-    let mut indices = vram.allocate(6, 128)?;
     let texels = vram.allocate(TEX_PITCH * 4, 128)?;
     let scaled = vram.allocate(TEX_PITCH * 8, 128)?;
     #[cfg(feature = "verify-framebuffer")]
@@ -129,19 +98,10 @@ fn run() -> Result<(), Error> {
         }
         assert_eq!(upload.read_word(tail)?, guard);
     }
-    #[cfg(feature = "verify-framebuffer")]
-    let mut reports =
-        unsafe { context.map_main_reports(addr_of_mut!(REPORTS).cast(), IO_SIZE as u32)? };
     let mut draw_done = unsafe { context.label(128)? };
 
     context.set_flip_mode(FlipMode::VSync);
     unsafe {
-        let vertex_bytes =
-            core::slice::from_raw_parts(VERTICES.as_ptr().cast(), size_of_val(&VERTICES));
-        vertices.write(0, vertex_bytes)?;
-        fragment_code.write(0, fragment.microcode())?;
-        textured_code.write(0, textured_fragment.microcode())?;
-        indices.write(0, &[0, 3, 0, 4, 0, 5])?;
         for row in 0..4 {
             upload.write(row * TEX_PITCH, [TEXEL.to_be_bytes(); 4].as_flattened())?;
         }
@@ -217,113 +177,15 @@ fn run() -> Result<(), Error> {
         context.set_scissor(viewport.rect)?;
         context.set_depth_state(false, false)?;
         context.set_depth_compare(Compare::LessEqual)?;
-        context.set_alpha_test(Some((Compare::Greater, 0)))?;
-        context.set_blend(Some(Blend::ALPHA))?;
-        context.set_culling(None, FaceWinding::CounterClockwise)?;
-        context.set_polygon_mode(PolygonMode::Fill, PolygonMode::Fill)?;
         context.set_color_mask([true; 4])?;
         context.set_clear_color(COLOR)?;
         context.clear(ClearMask::COLOR)?;
-        context.load_vertex_program(&vertex)?;
-        context.load_fragment_program(
-            &fragment,
-            fragment_code.location(),
-            fragment_code.offset(),
-        )?;
-        context.upload_fragment_constant(
-            &fragment,
-            tint,
-            fragment_code.location(),
-            fragment_code.offset(),
-            &[1.0; 4],
-        )?;
-        context.refresh_fragment_program(fragment_code.location(), fragment_code.offset())?;
-        let vertex_offset = vertices.offset();
-        for (slot, offset) in [
-            (0, vertex_offset),
-            (3, vertex_offset + 16),
-            (8, vertex_offset + 16),
-        ] {
-            context.set_vertex_attribute(VertexAttribute {
-                slot,
-                components: 4,
-                format: VertexType::F32,
-                stride: 32,
-                frequency: 0,
-                location: vertices.location(),
-                offset,
-            })?;
-        }
-        #[cfg(not(feature = "verify-framebuffer"))]
-        context.draw_arrays(Primitive::Triangles, 0, 3)?;
-        #[cfg(feature = "verify-framebuffer")]
-        {
-            context.disable_vertex_attribute(3)?;
-            context
-                .set_immediate_vertex(3, ImmediateVertex::NormalizedByte4([255, 128, 0, 255]))?;
-            context.set_vertex_attribute_format(0, VertexType::F32, 4, 32, 0)?;
-            context.set_vertex_attribute_offset(0, vertices.location(), vertex_offset - 32)?;
-            context.set_vertex_data_base(32, 0)?;
-            context.draw_inline_indices_u16(Primitive::Triangles, &[0, 1, 2])?;
-            context.set_vertex_data_base(0, 0)?;
-            context.set_vertex_attribute_offset(0, vertices.location(), vertex_offset)?;
-        }
-        context.load_vertex_program(&textured_vertex)?;
-        context.load_fragment_program(
-            &textured_fragment,
-            textured_code.location(),
-            textured_code.offset(),
-        )?;
-        let texture = Texture::linear_argb8(scaled.location(), scaled.offset(), 8, 8, TEX_PITCH)?;
-        context.bind_texture(0, &texture, &Sampler::default())?;
-        #[cfg(feature = "verify-framebuffer")]
-        {
-            use ps3::rsx::{
-                TextureChannel as Channel, TextureComponent as Component, TextureRemap,
-                TextureRemapOrder,
-            };
-            let remap = TextureRemap::new(
-                [
-                    Component::Channel(Channel::Alpha),
-                    Component::Channel(Channel::Green),
-                    Component::Zero,
-                    Component::Zero,
-                ],
-                TextureRemapOrder::Xyxy,
-            );
-            context.set_texture_remap(0, remap.bits())?;
-        }
-        #[cfg(feature = "verify-framebuffer")]
-        {
-            // Seed two completed report values to exercise both predicate branches.
-            reports.write(20 * 16 + 8, &0u32.to_be_bytes())?;
-            reports.write(21 * 16 + 8, &1u32.to_be_bytes())?;
-            context.render_if_visible(ReportSlot::new(Location::Main, 20)?)?;
-            context.draw_arrays(Primitive::Triangles, 0, 3)?;
-            context.render_if_visible(ReportSlot::new(Location::Main, 21)?)?;
-        }
-        context.draw_indexed(
-            Primitive::Triangles,
-            indices.location(),
-            IndexType::U16,
-            indices.offset(),
-            3,
-        )?;
-        #[cfg(feature = "verify-framebuffer")]
-        {
-            context.set_conditional_render(None)?;
-            context.set_report_location(Location::Local)?;
-        }
         draw_done.write(0);
         context.signal_label(&draw_done, LabelStage::Backend, 0x0123_4567)?;
         context.wait_label(&draw_done, 0x0123_4567)?;
         display.present(&mut context)?;
         context.finish(0x1234_5678, 30_000)?;
     }
-    #[cfg(feature = "verify-framebuffer")]
-    unsafe {
-        reports.unmap_main()?
-    };
     draw_done.wait(0x0123_4567, 30_000)?;
     display.wait(&context, 30_000)?;
     #[cfg(feature = "verify-framebuffer")]
@@ -345,11 +207,11 @@ fn run() -> Result<(), Error> {
             corner, left, right
         );
         assert_eq!(corner, COLOR & 0x00ff_ffff);
-        assert_eq!(left, 0xff_8000);
-        assert_eq!(right, (TEXEL & 0x0000_ff00) << 8);
+        assert_eq!(left, COLOR & 0x00ff_ffff);
+        assert_eq!(right, COLOR & 0x00ff_ffff);
     }
 
-    // Show the rendered triangles before confirming that the buffers alternate.
+    // Keep the clear visible before confirming that the buffers alternate.
     sys_timer_usleep(500_000);
     let next = display.back_buffer().ok_or(Error::InvalidContext)?;
     let next_offset = next.storage().offset();
@@ -369,10 +231,7 @@ fn run() -> Result<(), Error> {
             .offset(),
         next_offset,
     );
-    println!(
-        "RSX triangle and flip passed ({}x{})",
-        size.width, size.height
-    );
+    println!("RSX clear and flip passed ({}x{})", size.width, size.height);
     Ok(())
 }
 
