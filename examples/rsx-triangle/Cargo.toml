@@ -1,0 +1,19 @@
+[package]
+name = "example-rsx-triangle"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[[bin]]
+name = "EBOOT"
+path = "src/main.rs"
+
+[dependencies]
+ps3 = { path = "../../ps3", default-features = false, features = ["rsx"] }
+
+[features]
+default = ["sdk-370"]
+sdk-192 = ["ps3/sdk-192"]
+sdk-270 = ["ps3/sdk-270"]
+sdk-370 = ["ps3/sdk-370"]
+verify-framebuffer = []

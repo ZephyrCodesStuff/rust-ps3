@@ -41,6 +41,8 @@ struct LibraryConfig {
     #[serde(default = "default_module_id")]
     module_id: u16,
     #[serde(default)]
+    requires_feature: Option<String>,
+    #[serde(default)]
     functions: Vec<FunctionConfig>,
 }
 
@@ -52,6 +54,12 @@ fn default_module_id() -> u16 {
 struct FunctionConfig {
     name: String,
     fnid: u32,
+    #[serde(default)]
+    since_sdk: u16,
+    #[serde(default)]
+    through_sdk: Option<u16>,
+    #[serde(default)]
+    stack_words: u8,
 }
 
 fn generate_sprx_assembly(config: &SprxConfig) -> String {
@@ -151,24 +159,28 @@ fn generate_sprx_assembly(config: &SprxConfig) -> String {
         out.push_str(&format!("    .short 0x{:04x}\n", lib.module_id));
         out.push_str(&format!("    .short {}\n", lib.functions.len()));
         out.push_str("    .int 0, 0\n");
-        out.push_str("    .int 0            # name (patched by moldier)\n");
-        out.push_str("    .int 0            # fnid (patched by moldier)\n");
-        out.push_str("    .int 0            # fstub (patched by moldier)\n");
+        out.push_str(&format!(
+            "    .long {lib_name}_name, {lib_name}_fnid_table, {lib_name}_fstub_table\n"
+        ));
         out.push_str("    .int 0, 0, 0, 0\n\n");
     }
 
     // 5. Trampolines (.sceStub.text)
     out.push_str(".section \".sceStub.text\",\"ax\"\n.align 2\n\n");
     out.push_str(
-        ".macro DEFINE_STUB name\n\
+        ".macro DEFINE_STUB name, frame, stack_words\n\
 .align 2\n\
-.globl \\name\n\
-.type \\name, @function\n\
-\\name:\n\
+.Lcode_\\name:\n\
     mflr    0\n\
     std     0, 16(1)\n\
     std     2, 40(1)\n\
-    stdu    1, -128(1)\n\
+    stdu    1, -\\frame(1)\n\
+    .set .Lslot\\@, 112\n\
+    .rept \\stack_words\n\
+    ld      0, \\frame+.Lslot\\@(1)\n\
+    std     0, .Lslot\\@(1)\n\
+    .set .Lslot\\@, .Lslot\\@+8\n\
+    .endr\n\
     addis   12, 2, \\name\\()_stub@toc@ha\n\
     addi    12, 12, \\name\\()_stub@toc@l\n\
     lwz     12, 0(12)\n\
@@ -176,18 +188,33 @@ fn generate_sprx_assembly(config: &SprxConfig) -> String {
     lwz     2, 4(12)\n\
     mtctr   0\n\
     bctrl\n\
-    addi    1, 1, 128\n\
+    addi    1, 1, \\frame\n\
     ld      2, 40(1)\n\
     ld      0, 16(1)\n\
     mtlr    0\n\
     blr\n\
+    .pushsection \".opd\",\"aw\"\n\
+    .p2align 3\n\
+    .globl \\name\n\
+    .type \\name, @function\n\
+\\name:\n\
+    .quad .Lcode_\\name, .TOC.@tocbase, 0\n\
+    .size \\name, .-\\name\n\
+    .popsection\n\
 .endm\n\n",
     );
 
     for (lib_name, lib) in &config.libraries {
         out.push_str(&format!("# {} stubs\n", lib_name));
         for func in &lib.functions {
-            out.push_str(&format!("DEFINE_STUB {}\n", func.name));
+            // ELFv1 passes arguments after r10 in eight-byte stack slots.
+            let frame = (112 + usize::from(func.stack_words) * 8)
+                .max(128)
+                .next_multiple_of(16);
+            out.push_str(&format!(
+                "DEFINE_STUB {}, {frame}, {}\n",
+                func.name, func.stack_words
+            ));
         }
         out.push('\n');
     }
@@ -198,6 +225,7 @@ fn generate_sprx_assembly(config: &SprxConfig) -> String {
 fn main() {
     println!("cargo:rerun-if-changed=sprx.toml");
     println!("cargo:rerun-if-changed=../sprx.toml");
+    println!("cargo:rerun-if-changed=sdk-imports.toml");
 
     let out_dir = env::var("OUT_DIR").unwrap();
     let dest_path = PathBuf::from(out_dir).join("sprx.s");
@@ -210,12 +238,71 @@ fn main() {
         None
     };
 
-    let config: SprxConfig = if let Some(path) = config_path {
+    let mut config: SprxConfig = if let Some(path) = config_path {
         let content = fs::read_to_string(&path).unwrap_or_default();
         toml::from_str(&content).unwrap_or_default()
     } else {
         SprxConfig::default()
     };
+
+    if env::var_os("CARGO_FEATURE_SDK_IMPORTS").is_some()
+        || env::var_os("CARGO_FEATURE_RSX").is_some()
+    {
+        let sdk_config: SprxConfig =
+            toml::from_str(include_str!("sdk-imports.toml")).expect("invalid built-in SDK imports");
+        let sdk = [
+            ("CARGO_FEATURE_SDK_370", 370),
+            ("CARGO_FEATURE_SDK_270", 270),
+            ("CARGO_FEATURE_SDK_192", 192),
+        ]
+        .into_iter()
+        .find_map(|(feature, version)| env::var_os(feature).map(|_| version))
+        .unwrap_or_default();
+
+        for (name, mut library) in sdk_config.libraries {
+            if let Some(feature) = &library.requires_feature {
+                let env_name = format!(
+                    "CARGO_FEATURE_{}",
+                    feature.replace('-', "_").to_ascii_uppercase()
+                );
+                if env::var_os(env_name).is_none() {
+                    continue;
+                }
+            }
+            library
+                .functions
+                .retain(|f| f.since_sdk <= sdk && f.through_sdk.is_none_or(|last| sdk <= last));
+            let configured =
+                config
+                    .libraries
+                    .entry(name.clone())
+                    .or_insert_with(|| LibraryConfig {
+                        module_id: library.module_id,
+                        requires_feature: None,
+                        functions: Vec::new(),
+                    });
+            assert_eq!(
+                configured.module_id, library.module_id,
+                "conflicting SDK library attributes for {name}"
+            );
+            for function in library.functions {
+                if let Some(existing) = configured
+                    .functions
+                    .iter_mut()
+                    .find(|f| f.name == function.name)
+                {
+                    assert_eq!(
+                        existing.fnid, function.fnid,
+                        "conflicting SDK import {}",
+                        function.name
+                    );
+                    existing.stack_words = function.stack_words;
+                } else {
+                    configured.functions.push(function);
+                }
+            }
+        }
+    }
 
     let asm = generate_sprx_assembly(&config);
     fs::write(dest_path, asm).expect("Failed to write generated sprx.s");

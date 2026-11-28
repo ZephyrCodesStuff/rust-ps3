@@ -56,14 +56,17 @@ See `examples/` directory for sample programs (`examples/hello-world` and `examp
 - [x] Direct compilation via Rust `json-target-spec` without legacy cross-compiler toolchains
 - [ ] SPU (Synergistic Processing Unit) toolchain & inter-processor communication (MFC DMA / mailboxes)
 - [ ] RSX / libgcm 3D graphics hardware acceleration
+  - [x] GCM firmware imports, video output, and a framebuffer clear and flip
+  - [x] Vertex and index buffers, shader upload, and triangle rendering
+  - [x] Texture sampling and GPU memory copies
+  - [x] VRAM allocation, main-memory mapping, and GPU semaphore labels
+  - [x] Double buffering, GCM callbacks, and tiled and Z-cull bindings
 - [ ] `std` support
 - [ ] Automated self / `EBOOT.BIN` packaging
 
-### What about PSL1GHT / Cell SDK?
+### Toolchain
 
-Traditional PS3 homebrew relies on the legacy GCC-based **PSL1GHT** SDK or the official Sony Cell SDK. 
-
-`rust-ps3` (formerly `hello-cell`) is a **standalone, modern toolchain and runtime** built directly on top of upstream LLVM/rustc:
+`rust-ps3` (formerly `hello-cell`) is a standalone toolchain and runtime built directly on top of upstream LLVM/rustc:
 - Targets 64-bit PowerPC ELFv1 (`powerpc64-unknown-linux-gnu` reference target spec, customized to `powerpc64-sony-ps3` for CellOS and PPU).
 - Links binaries using the modern high-performance [`mold`](https://github.com/rui314/mold) linker.
 - Patches the final binary with **`moldier`**, a small(ish) post-linker tool that generates SPRX import stubs from TOML definitions and patches Sony LV2 Official Procedure Descriptors (OPD) and TOC relocations directly into the final ELF.
@@ -128,6 +131,122 @@ You can run `EBOOT.ELF` directly in [RPCS3](https://rpcs3.net/).
    ```
 2. Alternatively, mount and run directly via `webMAN MOD` or `/app_home/PS3_GAME/`.
 3. Even more alternatively, use a Target Manager to upload the binary to your PS3 and run it.
+
+## RSX graphics
+
+Enable the `rsx` feature for `ps3::rsx`. It provides GCM firmware imports,
+PPU-layout graphics records, a command FIFO, and video output configuration.
+Use `moldier patch` to prepare the executable's imports before running it.
+The [RSX notes](docs/rsx.md) describe the API and verification.
+
+The `rsx-triangle` example maps a 1 MiB-aligned I/O buffer, sets up a local
+framebuffer, clears it, and flips between display buffers. It also exercises
+GPU transfers and scaling. Build it with `./scripts/build.sh rsx-triangle`.
+Build with `--features verify-framebuffer` to check the sampled texture in the
+framebuffer and transfer results on hardware or in RPCS3 with **Write Color
+Buffers** enabled.
+
+## LV2 syscall bindings
+
+`ps3::sys::raw` contains the direct LV2 calls defined inline by the official
+PPU SDK, with Rust types for their arguments and results. The target uses
+64-bit registers and Rust pointers. Embedded SDK pointers and `size_t`
+fields retain their 32-bit CellOS representation. Compile-time assertions
+check the sizes, alignments and field offsets of the ABI records.
+
+```rust,ignore
+use ps3::sys::error::Lv2Error;
+use ps3::sys::raw::{sys_memory_get_user_memory_size, SysMemoryInfo};
+
+let mut info = SysMemoryInfo::default();
+Lv2Error::check(unsafe { sys_memory_get_user_memory_size(&mut info) })?;
+let available = info.available_user_memory;
+```
+
+The default feature `sdk-370` selects the SDK 3.70 ABI and also matches the
+public LV2 function signatures and selectors in SDKs 4.60 and 4.75. For an
+older ABI, select `sdk-270` or `sdk-192` when declaring the dependency.
+
+```toml
+ps3 = { version = "0.1", default-features = false, features = ["sdk-192"] }
+```
+
+| Call | SDK 1.92 | SDK 2.70 | SDK 3.70 / 4.60 / 4.75 |
+| --- | ---: | ---: | ---: |
+| `sys_memory_container_create` | 341 | 324 | 324 |
+| `sys_memory_container_destroy` | 342 | 325 | 325 |
+| `sys_rwlock_trywlock` | 126 | 126 | 148 |
+
+Select one feature across the dependency graph. The selection is made at
+compile time. Check the running firmware and process permissions before
+using an entry point. Some firmware revisions expose the two memory
+container selector pairs under different permissions. See the
+[firmware compatibility notes](docs/lv2-compatibility.md) for the
+versions and evidence behind these differences.
+
+Public SDK helpers for memory mapping and timer scheduling are available
+under `ps3::sys`, alongside the compatibility helpers for process exit,
+thread creation and PRX start and stop. Cell APIs such as file I/O and
+sockets use their SDK library imports.
+
+Enable the `sdk-imports` feature to access `ps3::sys::sdk`. It contains typed
+firmware calls for PRX management, PPU threads, lightweight synchronization,
+SPU images, memory pools and related system services. These functions use the
+running firmware's `sysPrxForUser` library. The build adds the SDK import IDs
+to the application's SPRX import table, which `moldier patch` finalizes.
+The selected ABI controls which symbols are imported. Enable `sdk-debug`
+to also expose `ps3::sys::sdk::debug` on firmware with the `sys_lv2dbg`
+library and the required debug permissions.
+
+Enable `sdk-crashdump` to use the public crash dump log area functions under
+`ps3::sys::sdk::crashdump`. They use the firmware's `sys_crashdump` library.
+The firmware and executable configuration determine whether a process can
+produce crash dump files.
+
+The `sdk-370` profile also provides `SysPrxModuleInfoV2` and the associated
+import and export records from SDKs 4.60 and 4.75. Query the extended record
+using `sys_prx_get_module_info_v2` on supporting firmware.
+
+Use the audit script to compare the direct selectors and ABI signatures
+against local SDK headers.
+
+```sh
+python3 scripts/audit-lv2.py --public-sdk-headers INCLUDE_DIR --sdk-abi sdk-370
+```
+
+`--lv2-stub-archive PATH_TO_LIBLV2_STUB_A --ppu-bin "$PS3DEV/ppu/bin"` to
+also compare the public library signatures and import IDs. The debug and
+crash dump libraries use `--lv2-debug-stub-archive PATH_TO_LIBLV2DBG_STUB_A`
+and `--crashdump-stub-archive PATH_TO_LIBCRASHDUMP_STUB_A`. The archive checks
+use Python 3.11 or later.
+
+To build the smoke program with a PS3DEV GNU linker:
+
+```sh
+CARGO_ENCODED_RUSTFLAGS='' cargo -Z unstable-options -Z build-std=core,alloc \
+    -Z build-std-features=compiler-builtins-mem rustc --locked --release -p lv2-smoke -- \
+    -C "linker=$PS3DEV/ppu/bin/ppu-ld" -C link-arg=-T \
+    -C "link-arg=$PWD/tests/lv2-smoke/link.ld" -C link-arg=--no-opd-optimize \
+    -C link-arg=--no-toc-optimize -C link-arg=--no-multi-toc
+```
+
+For `sdk-192` or `sdk-270`, pass `--no-default-features` and the selected
+`--features` value before the `--`. Boot
+`target/powerpc64-sony-ps3/release/lv2-smoke.ELF` in
+RPCS3. The program prints `LV2 ABI smoke passed` after checking process and
+time calls, memory allocation, mapped memory and containers, event queues,
+timers, semaphores, read/write locks, and thread creation and join.
+
+For the firmware import tests, build the smoke program with `--features
+sdk-imports` before the `--` and add `-C link-arg=-u -C
+link-arg=sys_proc_prx_param` after it. Use
+`--no-default-features --features sdk-192,sdk-imports` for the 1.92 variant.
+Run `moldier patch` on the resulting ELF before booting it. This variant
+also checks the firmware thread wrappers, lightweight mutex and condition
+variable, memory pool and PRX lifecycle using the firmware's `libfiber.sprx`.
+Use `sdk-debug` in place of `sdk-imports` to try a thread status query.
+RPCS3 can resolve the debug import even when its implementation leaves the
+output record untouched.
 
 ## SPRX Dynamic Imports (`sprx.toml`)
 

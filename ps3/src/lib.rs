@@ -12,6 +12,8 @@ pub mod io;
 pub mod mem;
 pub mod net;
 pub mod panic;
+#[cfg(feature = "rsx")]
+pub mod rsx;
 pub mod sys;
 
 pub use allocator::{get_heap_stats, HeapStats};

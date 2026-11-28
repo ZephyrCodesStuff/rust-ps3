@@ -3,6 +3,7 @@ members = [
     "ps3",
     "ps3-macros",
     "examples/*",
+    "tests/lv2-smoke",
 ]
 exclude = ["moldier"]
 resolver = "2"

@@ -8,6 +8,16 @@ license = "MIT OR Apache-2.0"
 [lib]
 crate-type = ["rlib"]
 
+[features]
+default = ["sdk-370"]
+sdk-370 = []
+sdk-270 = []
+sdk-192 = []
+sdk-imports = []
+sdk-debug = ["sdk-imports"]
+sdk-crashdump = ["sdk-imports"]
+rsx = []
+
 [dependencies]
 ps3-macros = { path = "../ps3-macros" }
 
